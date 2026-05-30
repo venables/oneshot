@@ -6,10 +6,11 @@ deliberately incomplete.
 
 ## Known limitations (from the spike)
 
-- [ ] **Flag passthrough fidelity.** Unknown flags that take a _value_ only
-      forward the flag token, not the value (`src/args.rs`). Workaround today:
-      `--flag=value` or text after `--`. Fix: track arity, or port the original's
-      explicit allowlist.
+- [ ] **Flag passthrough fidelity (partial).** `--flag=value` and a known set
+      of claude value-flags (`KNOWN_VALUE_FLAGS` in `src/args.rs`) now forward
+      with their values. Remaining gap: a _space-separated_ value for an
+      _unrecognised_ flag is still absorbed into the prompt. Workaround:
+      `--flag=value`. Fix: extend the set, or track arity generically.
 - [ ] **Real prebuilt-binary download.** `scripts/install.js` is a no-op stub.
       Needs a GitHub release + CI matrix building `aarch64/x86_64 × macos/linux`,
       then a real fetch keyed on `process.platform`/`process.arch`.

@@ -62,9 +62,10 @@ Unrecognised flags are forwarded to `claude`. `-p`/`--print` and a
 user-supplied `--settings` are rejected (we emulate print mode and inject our
 own settings for the Stop hook).
 
-> **Spike limitation:** an unrecognised flag that takes a _value_ currently
-> forwards only the flag token, not the value. Pass such flags as
-> `--flag=value`, or put literal text after `--`.
+> **Note:** `--flag=value` works for any flag, and common claude value-flags
+> (`--allowedTools`, `--system-prompt`, `--add-dir`, `--resume`, …) forward
+> with their values. A _space-separated_ value for an _unrecognised_ flag is
+> the one remaining gap — pass it as `--flag=value`.
 
 ## Exit codes
 
