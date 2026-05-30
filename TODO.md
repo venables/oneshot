@@ -32,6 +32,21 @@ deliberately incomplete.
 
 ## Robustness / polish
 
+- [ ] **Auth / startup error handling (fast-fail).** Today there is no
+      auth-specific handling. Three paths, verified with fake binaries:
+      (a) claude prints an error and _exits_ → surfaced generically as
+      `ChildExitedEarly` (exit 2) with a raw CSI-stripped output tail;
+      (b) claude drops into an _interactive_ auth prompt and waits (e.g.
+      expired OAuth) → we hang until `--timeout` (default 300s!) then exit 124
+      — the worst case; (c) an API error that still completes a turn
+      (`is_error: true`) → handled, exit 1. Fix: in `pump_loop`'s
+      pre-SessionStart scan (same place as the trust dialog), match startup
+      error markers (`Invalid API key`, `Please run /login`,
+      `OAuth token expired`, `credit balance`, `Unauthorized`, `rate limit`)
+      and tear down immediately with a clean message + a distinct
+      `DriverError::StartupError` exit code, instead of waiting for the
+      timeout. Caveat: screen-scraping, so same fragility as trust detection;
+      gate to pre-session to avoid matching prompt/answer text.
 - [ ] **Replace the 10ms main-loop sleep with `poll()`** on the FIFO fd (woken
       by a self-pipe/eventfd when the pump thread queues nothing — here only the
       FIFO matters since the pump owns PTY writes). Lower latency, no spin.
