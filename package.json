@@ -4,14 +4,11 @@
   "description": "Drop-in replacement for `claude -p` that drives interactive claude under a PTY",
   "license": "MIT",
   "bin": {
-    "claude-p": "bin/claude-p.js"
+    "claude-p": "bin/claude-p"
   },
   "files": [
-    "bin/",
-    "scripts/",
-    "prebuilt/",
-    "README.md",
-    "SPEC.md"
+    "bin/claude-p",
+    "README.md"
   ],
   "os": [
     "darwin",
@@ -20,11 +17,5 @@
   "cpu": [
     "x64",
     "arm64"
-  ],
-  "scripts": {
-    "postinstall": "node scripts/install.js"
-  },
-  "engines": {
-    "node": ">=18"
-  }
+  ]
 }

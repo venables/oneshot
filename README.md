@@ -109,6 +109,24 @@ CLAUDE_P_E2E=1 CLAUDE_P_CLAUDE_BIN=/path/to/claude \
   cargo test --test integration -- --test-threads=1
 ```
 
+## Packaging (npm)
+
+The npm package ships the compiled binary directly — `bin` points at
+`bin/claude-p`, so `npm install` symlinks it with no Node shim in the path.
+Before publishing, build and copy the binary into place:
+
+```bash
+cargo build --release
+install -m 755 target/release/claude-p bin/claude-p   # gitignored; shipped via "files"
+npm publish
+```
+
+> A single tarball contains one binary, so it is **platform-specific** (it
+> matches the machine it was built on). To cover macOS + Linux × x64 + arm64,
+> publish one package per target, or move to per-platform `optionalDependencies`
+> (which reintroduces a small launcher). The `os`/`cpu` fields gate installs but
+> do not make one binary portable.
+
 ## License
 
 MIT.
