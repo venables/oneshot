@@ -33,16 +33,22 @@ pub fn spawn(cfg: SpawnConfig) -> Result<Spawned> {
         pixel_height: 0,
     })?;
 
-    let mut cmd = CommandBuilder::new(&cfg.argv[0]);
-    for arg in &cfg.argv[1..] {
+    let (program, args) = cfg
+        .argv
+        .split_first()
+        .ok_or_else(|| anyhow::anyhow!("spawn: empty argv"))?;
+    let mut cmd = CommandBuilder::new(program);
+    for arg in args {
         cmd.arg(arg);
     }
 
     // Deterministic environment: start from the parent's, then apply our
-    // overrides. Forcing TERM keeps Ink's terminal probing on the path our
-    // DEC responder handles.
+    // overrides. Use the OsString form -- `std::env::vars()` panics if any var
+    // is not valid UTF-8, which would abort before we ever spawn claude.
+    // Forcing TERM keeps Ink's terminal probing on the path our DEC responder
+    // handles.
     cmd.env_clear();
-    for (k, v) in std::env::vars() {
+    for (k, v) in std::env::vars_os() {
         cmd.env(k, v);
     }
     for (k, v) in cfg.extra_env {
