@@ -209,7 +209,7 @@ mod tests {
         let mut d = DecResponder::new(40, 120);
         // ESC [ followed by a flood of parameter bytes and no final byte.
         let mut junk = vec![0x1b, b'['];
-        junk.extend(std::iter::repeat(b'0').take(MAX_CARRY + 10));
+        junk.extend(std::iter::repeat_n(b'0', MAX_CARRY + 10));
         assert!(d.feed(&junk).is_empty());
         // The carry was dropped, so a fresh valid query still works.
         assert_eq!(d.feed(b"\x1b[c"), b"\x1b[?1;2c");

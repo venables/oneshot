@@ -81,11 +81,10 @@ pub fn parse(bytes: &str) -> Result<Summary, ParseError> {
                 if let Some(msg) = obj.get("message") {
                     if let Some(content) = msg.get("content").and_then(Value::as_array) {
                         for block in content {
-                            if block.get("type").and_then(Value::as_str) == Some("text") {
-                                if let Some(t) = block.get("text").and_then(Value::as_str) {
+                            if block.get("type").and_then(Value::as_str) == Some("text")
+                                && let Some(t) = block.get("text").and_then(Value::as_str) {
                                     final_text.push_str(t);
                                 }
-                            }
                         }
                     }
                     if let Some(u) = msg.get("usage") {
