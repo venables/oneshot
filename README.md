@@ -58,9 +58,11 @@ If no prompt argument is given, the prompt is read from stdin.
 --                                         end-of-options; rest is the prompt
 ```
 
-Unrecognised flags are forwarded to `claude`. `-p`/`--print` and a
-user-supplied `--settings` are rejected (we emulate print mode and inject our
-own settings for the Stop hook).
+Unrecognised flags are forwarded to `claude`. `-p`/`--print` is accepted but
+ignored — claude-p already emulates print mode, so the flag is redundant, and
+swallowing it lets callers that invoke `claude -p "..."` point at claude-p
+unchanged. A user-supplied `--settings` is rejected (we inject our own settings
+for the Stop hook).
 
 > **Note:** `--flag=value` works for any flag, and common claude value-flags
 > (`--allowedTools`, `--system-prompt`, `--add-dir`, `--resume`, …) forward

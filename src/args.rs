@@ -2,9 +2,13 @@
 //! are mapped onto the child `claude` invocation; anything we don't recognise
 //! is forwarded verbatim so the wrapper stays useful as Claude Code evolves.
 //!
-//! `-p` / `--print` and a user-supplied `--settings` are rejected: we emulate
-//! print mode by driving interactive mode, and we inject our own `--settings`
-//! to register the Stop hook.
+//! `-p` / `--print` is accepted but ignored: claude-p *is* print mode (it
+//! emulates `claude -p` by driving interactive mode), so the flag is redundant
+//! rather than contradictory, and swallowing it lets callers that invoke
+//! `claude -p "..."` point at claude-p unchanged. It must not be forwarded to
+//! the child `claude` -- doing so would enable real print mode and break the
+//! Stop-hook capture. A user-supplied `--settings` is rejected: we inject our
+//! own `--settings` to register the Stop hook.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputFormat {
@@ -47,7 +51,6 @@ impl Default for Options {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ArgError {
-    PrintModeRejected,
     SettingsRejected,
     MissingValue(String),
     BadOutputFormat(String),
@@ -57,10 +60,6 @@ pub enum ArgError {
 impl std::fmt::Display for ArgError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::PrintModeRejected => write!(
-                f,
-                "-p/--print is rejected: claude-p emulates print mode by driving interactive mode"
-            ),
             Self::SettingsRejected => write!(
                 f,
                 "--settings is rejected: claude-p injects its own settings to register the Stop hook"
@@ -130,7 +129,11 @@ pub fn parse(args: &[String]) -> Result<Options, ArgError> {
         };
 
         match flag {
-            "-p" | "--print" => return Err(ArgError::PrintModeRejected),
+            // Accepted but ignored: claude-p already emulates print mode, so
+            // -p/--print is redundant. It must be swallowed here rather than
+            // forwarded -- passing it to the child claude would enable real
+            // print mode and break the Stop-hook capture.
+            "-p" | "--print" => {}
             "--settings" => return Err(ArgError::SettingsRejected),
             "--dangerously-skip-permissions" => opts.skip_permissions = true,
             "--debug" | "-d" => opts.debug = true,
@@ -239,8 +242,16 @@ mod tests {
     }
 
     #[test]
-    fn print_mode_rejected() {
-        assert_eq!(parse(&v(&["-p", "hi"])), Err(ArgError::PrintModeRejected));
+    fn print_flag_accepted_as_noop() {
+        // -p/--print is redundant (claude-p is print mode) -- accepted, ignored,
+        // and not forwarded to the child claude.
+        let o = parse(&v(&["-p", "hi"])).unwrap();
+        assert_eq!(o.prompt, "hi");
+        assert!(o.extra_args.is_empty());
+
+        let o = parse(&v(&["--print", "hello", "world"])).unwrap();
+        assert_eq!(o.prompt, "hello world");
+        assert!(o.extra_args.is_empty());
     }
 
     #[test]
