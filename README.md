@@ -1,13 +1,17 @@
-# claude-p
+# anyagent
 
-> **Use at your own risk, educational purposes.** This drives the `claude`
-> CLI in a way it isn't designed for. Prefer the supported `claude -p` when it
-> works for you; reach for this only when it doesn't.
+> **Use at your own risk, educational purposes.** This drives interactive agent
+> CLIs in a way they aren't designed for. Prefer a supported print mode (e.g.
+> `claude -p`) when it works for you; reach for this only when it doesn't.
 
-A drop-in replacement for `claude -p` that runs the interactive `claude` TUI
-inside a real PTY, submits your prompt, and captures the final assistant
-message via a `Stop` hook. Output on stdout matches `claude -p` for the same
-prompt.
+One non-interactive interface in front of any coding agent. Today it wraps
+`claude`; the goal is a single, uniform pipe over other agents (codex, …) as
+they're added.
+
+For the `claude` backend it's a drop-in replacement for `claude -p`: it runs the
+interactive `claude` TUI inside a real PTY, submits your prompt, and captures the
+final assistant message via a `Stop` hook. Output on stdout matches `claude -p`
+for the same prompt.
 
 This is a Rust reimplementation of the Zig project
 [smithersai/claude-p](https://github.com/smithersai/claude-p), with one core
@@ -21,10 +25,10 @@ appears.
 ## Use
 
 ```bash
-claude-p "your prompt here"
-claude-p --output-format json "summarize this" < diff.txt
-claude-p --output-format stream-json "audit src/" | jq .
-claude-p --model opus "explain quicksort to a 10-year-old"
+anyagent "your prompt here"
+anyagent --output-format json "summarize this" < diff.txt
+anyagent --output-format stream-json "audit src/" | jq .
+anyagent --model opus "explain quicksort to a 10-year-old"
 ```
 
 If no prompt argument is given, the prompt is read from stdin.
@@ -59,8 +63,8 @@ If no prompt argument is given, the prompt is read from stdin.
 ```
 
 Unrecognised flags are forwarded to `claude`. `-p`/`--print` is accepted but
-ignored — claude-p already emulates print mode, so the flag is redundant, and
-swallowing it lets callers that invoke `claude -p "..."` point at claude-p
+ignored — anyagent already emulates print mode, so the flag is redundant, and
+swallowing it lets callers that invoke `claude -p "..."` point at anyagent
 unchanged. A user-supplied `--settings` is rejected (we inject our own settings
 for the Stop hook).
 
@@ -82,7 +86,7 @@ for the Stop hook).
 ## Caveats
 
 - **macOS / Linux only** (no Windows; needs a Unix PTY).
-- **Requires `claude` on `$PATH`** (or set `CLAUDE_P_CLAUDE_BIN`, below).
+- **Requires `claude` on `$PATH`** (or set `ANYAGENT_CLAUDE_BIN`, below).
 - **Per-message streaming, not per-token.** `stream-json` emits transcript
   lines as `claude` flushes them, then a trailing `result` envelope.
   Per-token streaming needs `claude -p --include-partial-messages`, which is
@@ -91,36 +95,36 @@ for the Stop hook).
   release that changes the hook payload or adds a new startup terminal probe
   can break this; failures surface rather than hide.
 
-### `CLAUDE_P_CLAUDE_BIN`
+### `ANYAGENT_CLAUDE_BIN`
 
 If `claude` on your `PATH` is a wrapper that injects its own `--settings`
 (e.g. the **cmux** shim), it will clobber ours and no hooks fire. Point
 directly at the real binary:
 
 ```bash
-CLAUDE_P_CLAUDE_BIN=/path/to/real/claude claude-p "say hi"
+ANYAGENT_CLAUDE_BIN=/path/to/real/claude anyagent "say hi"
 ```
 
 ## Build & test
 
 ```bash
-cargo build --release          # binary at target/release/claude-p
+cargo build --release          # binary at target/release/anyagent
 cargo test                     # unit tests (hermetic, no claude needed)
 
 # End-to-end against the real claude binary:
-CLAUDE_P_E2E=1 CLAUDE_P_CLAUDE_BIN=/path/to/claude \
+ANYAGENT_E2E=1 ANYAGENT_CLAUDE_BIN=/path/to/claude \
   cargo test --test integration -- --test-threads=1
 ```
 
 ## Packaging (npm)
 
 The npm package ships the compiled binary directly — `bin` points at
-`bin/claude-p`, so `npm install` symlinks it with no Node shim in the path.
+`bin/anyagent`, so `npm install` symlinks it with no Node shim in the path.
 Before publishing, build and copy the binary into place:
 
 ```bash
 cargo build --release
-install -m 755 target/release/claude-p bin/claude-p   # gitignored; shipped via "files"
+install -m 755 target/release/anyagent bin/anyagent   # gitignored; shipped via "files"
 npm publish
 ```
 

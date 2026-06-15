@@ -2,10 +2,10 @@
 //! are mapped onto the child `claude` invocation; anything we don't recognise
 //! is forwarded verbatim so the wrapper stays useful as Claude Code evolves.
 //!
-//! `-p` / `--print` is accepted but ignored: claude-p *is* print mode (it
+//! `-p` / `--print` is accepted but ignored: anyagent *is* print mode (it
 //! emulates `claude -p` by driving interactive mode), so the flag is redundant
 //! rather than contradictory, and swallowing it lets callers that invoke
-//! `claude -p "..."` point at claude-p unchanged. It must not be forwarded to
+//! `claude -p "..."` point at anyagent unchanged. It must not be forwarded to
 //! the child `claude` -- doing so would enable real print mode and break the
 //! Stop-hook capture. A user-supplied `--settings` is rejected: we inject our
 //! own `--settings` to register the Stop hook.
@@ -62,7 +62,7 @@ impl std::fmt::Display for ArgError {
         match self {
             Self::SettingsRejected => write!(
                 f,
-                "--settings is rejected: claude-p injects its own settings to register the Stop hook"
+                "--settings is rejected: anyagent injects its own settings to register the Stop hook"
             ),
             Self::MissingValue(flag) => write!(f, "flag {flag} requires a value"),
             Self::BadOutputFormat(v) => {
@@ -129,7 +129,7 @@ pub fn parse(args: &[String]) -> Result<Options, ArgError> {
         };
 
         match flag {
-            // Accepted but ignored: claude-p already emulates print mode, so
+            // Accepted but ignored: anyagent already emulates print mode, so
             // -p/--print is redundant. It must be swallowed here rather than
             // forwarded -- passing it to the child claude would enable real
             // print mode and break the Stop-hook capture.
@@ -243,7 +243,7 @@ mod tests {
 
     #[test]
     fn print_flag_accepted_as_noop() {
-        // -p/--print is redundant (claude-p is print mode) -- accepted, ignored,
+        // -p/--print is redundant (anyagent is print mode) -- accepted, ignored,
         // and not forwarded to the child claude.
         let o = parse(&v(&["-p", "hi"])).unwrap();
         assert_eq!(o.prompt, "hi");

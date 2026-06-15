@@ -1,13 +1,13 @@
 {
-  "name": "claude-p",
+  "name": "anyagent",
   "version": "0.1.0",
-  "description": "Drop-in replacement for `claude -p` that drives interactive claude under a PTY",
+  "description": "One non-interactive interface in front of any coding agent (claude today, more later), driving the interactive TUI under a PTY",
   "license": "MIT",
   "bin": {
-    "claude-p": "bin/claude-p"
+    "anyagent": "bin/anyagent"
   },
   "files": [
-    "bin/claude-p",
+    "bin/anyagent",
     "README.md"
   ],
   "os": [

@@ -1,4 +1,4 @@
-# claude-p — Specification
+# anyagent — Specification
 
 A Rust CLI that emulates `claude -p` (print mode) by driving the `claude`
 binary in **interactive mode** under a PTY, submitting the prompt as a
@@ -98,7 +98,7 @@ skip-permissions` does not suppress this dialog.)
 ## 4. Public surface
 
 `driver::run(opts, stream_out) -> Result<RunOutcome, DriverError>`. CLI flags
-map onto `Options` (see `args.rs`). `CLAUDE_P_CLAUDE_BIN` overrides the
+map onto `Options` (see `args.rs`). `ANYAGENT_CLAUDE_BIN` overrides the
 binary.
 
 ## 5. Test plan
@@ -109,7 +109,7 @@ binary.
 4. `args` — every flag and rejection.
 5. `emit` — golden text/json shapes.
 6. `stream` — tailer line-buffering across appends.
-7. `tests/integration.rs` — real `claude`, gated on `CLAUDE_P_E2E=1`.
+7. `tests/integration.rs` — real `claude`, gated on `ANYAGENT_E2E=1`.
 
 ## 6. Non-goals
 
@@ -123,5 +123,5 @@ binary.
 | ----------------------------------- | ------------------------------------------------------------- |
 | Hook payload schema change          | Parse defensively; fall back to transcript / payload message. |
 | New Ink startup probe               | Add a case to `dec::DecResponder::respond`.                   |
-| Wrapper injects `--settings` (cmux) | `CLAUDE_P_CLAUDE_BIN` to bypass.                              |
+| Wrapper injects `--settings` (cmux) | `ANYAGENT_CLAUDE_BIN` to bypass.                              |
 | Child outlives parent               | Process-group SIGTERM→SIGKILL; SIGINT handler.                |

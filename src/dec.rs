@@ -123,7 +123,7 @@ impl DecResponder {
             b'q' => {
                 // XTVERSION.
                 if private_gt {
-                    out.extend_from_slice(b"\x1bP>|claude-p\x1b\\");
+                    out.extend_from_slice(b"\x1bP>|anyagent\x1b\\");
                 }
             }
             b't' => {
@@ -164,7 +164,7 @@ mod tests {
     fn xtversion_is_dcs_wrapped() {
         let mut d = DecResponder::new(40, 120);
         let r = d.feed(b"\x1b[>q");
-        assert!(r.starts_with(b"\x1bP>|claude-p"));
+        assert!(r.starts_with(b"\x1bP>|anyagent"));
         assert!(r.ends_with(b"\x1b\\"));
     }
 

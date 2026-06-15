@@ -1,4 +1,4 @@
-//! claude-p: a drop-in replacement for `claude -p` that drives the interactive
+//! anyagent: a drop-in replacement for `claude -p` that drives the interactive
 //! `claude` TUI under a PTY and captures the final assistant message via a
 //! Stop hook. Output on stdout matches `claude -p` for the same prompt.
 
@@ -24,7 +24,7 @@ fn main() -> ExitCode {
     let mut opts = match args::parse(&raw) {
         Ok(o) => o,
         Err(e) => {
-            eprintln!("claude-p: {e}");
+            eprintln!("anyagent: {e}");
             return ExitCode::from(2);
         }
     };
@@ -33,19 +33,19 @@ fn main() -> ExitCode {
     // work without shell escaping).
     if opts.prompt.is_empty() {
         if std::io::stdin().is_terminal() {
-            eprintln!("claude-p: no prompt given (pass a prompt argument or pipe one on stdin)");
+            eprintln!("anyagent: no prompt given (pass a prompt argument or pipe one on stdin)");
             return ExitCode::from(2);
         }
         let mut s = String::new();
         if let Err(e) = std::io::stdin().read_to_string(&mut s) {
-            eprintln!("claude-p: failed reading stdin: {e}");
+            eprintln!("anyagent: failed reading stdin: {e}");
             return ExitCode::from(2);
         }
         opts.prompt = s.trim_end_matches('\n').to_string();
     }
 
     if opts.prompt.is_empty() {
-        eprintln!("claude-p: empty prompt");
+        eprintln!("anyagent: empty prompt");
         return ExitCode::from(2);
     }
 
@@ -77,7 +77,7 @@ fn main() -> ExitCode {
                     }
                 };
                 if let Err(e) = res {
-                    eprintln!("claude-p: write failed: {e}");
+                    eprintln!("anyagent: write failed: {e}");
                     return ExitCode::from(2);
                 }
             }
@@ -88,7 +88,7 @@ fn main() -> ExitCode {
             }
         }
         Err(e) => {
-            eprintln!("claude-p: {e}");
+            eprintln!("anyagent: {e}");
             ExitCode::from(e.exit_code())
         }
     }

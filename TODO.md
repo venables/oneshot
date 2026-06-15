@@ -73,4 +73,4 @@ deliberately incomplete.
 ## Notes
 
 - On machines where `claude` on PATH is a wrapper that injects its own
-  `--settings` (e.g. cmux), set `CLAUDE_P_CLAUDE_BIN=/path/to/real/claude`.
+  `--settings` (e.g. cmux), set `ANYAGENT_CLAUDE_BIN=/path/to/real/claude`.
