@@ -2,4 +2,4 @@
 **/*.rs.bk
 node_modules
 # Compiled binary, copied into place at publish time (shipped via npm "files").
-/bin/claude-p
+/bin/anyagent
