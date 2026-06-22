@@ -6,6 +6,7 @@ mod args;
 mod dec;
 mod driver;
 mod emit;
+mod harness;
 mod hook;
 mod pty;
 mod signals;
@@ -28,6 +29,19 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
+
+    // Only the Claude protocol is implemented today. Reserved harness names
+    // (codex, gemini, ...) fail fast rather than silently behaving like claude.
+    if !opts.harness.is_supported() {
+        eprintln!(
+            "anyagent: the '{}' harness is recognised but not implemented yet \
+             (today: claude, or a path to a claude-compatible binary). \
+             Recognised names: {}.",
+            opts.harness.name(),
+            harness::KNOWN_NAMES.join(", ")
+        );
+        return ExitCode::from(2);
+    }
 
     // No positional prompt: read it from stdin (so multiline prompts and pipes
     // work without shell escaping).

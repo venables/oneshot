@@ -47,7 +47,8 @@ argv -> hook harness (FIFO + relay script + --settings)
 | File            | Responsibility                                                            |
 | --------------- | ------------------------------------------------------------------------- |
 | `main.rs`       | CLI entry; stdin prompt; format dispatch; exit codes.                     |
-| `args.rs`       | Argparse; rejects `-p`/`--settings`; forwards unknown flags.              |
+| `args.rs`       | Argparse; rejects `--settings`; forwards unknown flags.                   |
+| `harness.rs`    | `--harness` selection; known names + custom path; supported check.        |
 | `dec.rs`        | Stateful DEC/XTerm query responder (carry buffer across reads).           |
 | `hook.rs`       | Temp dir + FIFO + relay script + inline `--settings` JSON; payload parse. |
 | `pty.rs`        | PTY spawn (execs argv directly — no `sh -c`).                             |
@@ -98,8 +99,9 @@ skip-permissions` does not suppress this dialog.)
 ## 4. Public surface
 
 `driver::run(opts, stream_out) -> Result<RunOutcome, DriverError>`. CLI flags
-map onto `Options` (see `args.rs`). `ANYAGENT_CLAUDE_BIN` overrides the
-binary.
+map onto `Options` (see `args.rs`). `-H`/`--harness` chooses the backend (only
+the `claude` protocol is implemented today; a custom path is driven as a
+claude-compatible binary). `ANYAGENT_CLAUDE_BIN` overrides the `claude` binary.
 
 ## 5. Test plan
 

@@ -9,6 +9,10 @@
 //! the child `claude` -- doing so would enable real print mode and break the
 //! Stop-hook capture. A user-supplied `--settings` is rejected: we inject our
 //! own `--settings` to register the Stop hook.
+//!
+//! `-H` / `--harness` selects which agent CLI to drive (see `crate::harness`).
+
+use crate::harness::Harness;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputFormat {
@@ -20,6 +24,7 @@ pub enum OutputFormat {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Options {
     pub prompt: String,
+    pub harness: Harness,
     pub output_format: OutputFormat,
     pub model: Option<String>,
     pub skip_permissions: bool,
@@ -36,6 +41,7 @@ impl Default for Options {
     fn default() -> Self {
         Self {
             prompt: String::new(),
+            harness: Harness::default(),
             output_format: OutputFormat::Text,
             model: None,
             skip_permissions: false,
@@ -135,6 +141,9 @@ pub fn parse(args: &[String]) -> Result<Options, ArgError> {
             // print mode and break the Stop-hook capture.
             "-p" | "--print" => {}
             "--settings" => return Err(ArgError::SettingsRejected),
+            "-H" | "--harness" => {
+                opts.harness = Harness::parse(value(inline, args, &mut i, flag)?);
+            }
             "--dangerously-skip-permissions" => opts.skip_permissions = true,
             "--debug" | "-d" => opts.debug = true,
             "--output-format" => {
@@ -315,6 +324,34 @@ mod tests {
         let o = parse(&v(&["--resume=abc123", "hi"])).unwrap();
         assert!(o.extra_args.windows(2).any(|w| w == ["--resume", "abc123"]));
         assert_eq!(o.prompt, "hi");
+    }
+
+    #[test]
+    fn harness_defaults_to_claude() {
+        let o = parse(&v(&["hi"])).unwrap();
+        assert_eq!(o.harness, Harness::Claude);
+    }
+
+    #[test]
+    fn harness_flag_selects_known_backend() {
+        let o = parse(&v(&["--harness", "codex", "hi"])).unwrap();
+        assert_eq!(o.harness, Harness::Codex);
+        assert_eq!(o.prompt, "hi");
+
+        let o = parse(&v(&["-H", "gemini", "hi"])).unwrap();
+        assert_eq!(o.harness, Harness::Gemini);
+    }
+
+    #[test]
+    fn harness_flag_inline_and_custom_path() {
+        let o = parse(&v(&["--harness=opencode", "hi"])).unwrap();
+        assert_eq!(o.harness, Harness::Opencode);
+
+        let o = parse(&v(&["--harness", "/opt/bin/claude-fork", "hi"])).unwrap();
+        assert_eq!(o.harness, Harness::Custom("/opt/bin/claude-fork".into()));
+        // The harness value is consumed, not leaked into the prompt or forwarded.
+        assert_eq!(o.prompt, "hi");
+        assert!(o.extra_args.is_empty());
     }
 
     #[test]

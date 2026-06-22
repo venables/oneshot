@@ -29,9 +29,19 @@ anyagent "your prompt here"
 anyagent --output-format json "summarize this" < diff.txt
 anyagent --output-format stream-json "audit src/" | jq .
 anyagent --model opus "explain quicksort to a 10-year-old"
+anyagent --harness claude "which harness am I?"
 ```
 
 If no prompt argument is given, the prompt is read from stdin.
+
+## Harnesses
+
+`-H` / `--harness <name|path>` selects which agent CLI to drive. Today only the
+`claude` harness is implemented; `codex`, `opencode`, `gemini`, and `pi` are
+recognised and reserved (selecting one fails fast until it's wired up). A value
+that isn't a known name is treated as a path to a **claude-compatible** binary
+and driven with the Claude protocol — handy for a fork or a wrapper shim. The
+default is `claude`.
 
 ## How it works
 
@@ -52,6 +62,7 @@ If no prompt argument is given, the prompt is read from stdin.
 ## Flags
 
 ```
+--harness <name|path> | -H                claude (default) | codex | … | /path
 --output-format <text|json|stream-json>   default: text
 --model <name>
 --dangerously-skip-permissions
@@ -104,6 +115,9 @@ directly at the real binary:
 ```bash
 ANYAGENT_CLAUDE_BIN=/path/to/real/claude anyagent "say hi"
 ```
+
+Equivalently, point `--harness` straight at the real binary:
+`anyagent --harness /path/to/real/claude "say hi"`.
 
 ## Build & test
 

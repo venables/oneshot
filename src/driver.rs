@@ -24,6 +24,7 @@ use portable_pty::{Child, MasterPty};
 
 use crate::args::{Options, OutputFormat};
 use crate::dec::DecResponder;
+use crate::harness::Harness;
 use crate::hook::{self, HookHarness, PayloadFields};
 use crate::pty::{self, SpawnConfig};
 use crate::signals;
@@ -88,7 +89,7 @@ impl std::fmt::Display for DriverError {
                 write!(f, "Stop fired but no assistant message was recoverable")
             }
             Self::Interrupted => write!(f, "interrupted"),
-            Self::Spawn(e) => write!(f, "failed to spawn claude: {e}"),
+            Self::Spawn(e) => write!(f, "failed to spawn the agent binary: {e}"),
             Self::Io(e) => write!(f, "io error: {e}"),
         }
     }
@@ -421,8 +422,7 @@ fn payload_only_summary(msg: &str, fields: &PayloadFields) -> Summary {
 }
 
 fn build_argv(opts: &Options, settings_json: &str) -> Vec<String> {
-    // ANYAGENT_CLAUDE_BIN lets tests point at a stand-in binary.
-    let bin = std::env::var("ANYAGENT_CLAUDE_BIN").unwrap_or_else(|_| "claude".to_string());
+    let bin = resolve_bin(&opts.harness);
     let mut v = vec![bin, "--settings".to_string(), settings_json.to_string()];
     if let Some(m) = &opts.model {
         v.push("--model".to_string());
@@ -437,6 +437,17 @@ fn build_argv(opts: &Options, settings_json: &str) -> Vec<String> {
     v.push("--".to_string());
     v.push(opts.prompt.clone());
     v
+}
+
+/// Resolve the binary to spawn for a harness. `ANYAGENT_CLAUDE_BIN` overrides
+/// the claude binary (tests, or a cmux-style shim that would clobber our
+/// `--settings`); a custom harness already carries its own path.
+fn resolve_bin(harness: &Harness) -> String {
+    if matches!(harness, Harness::Claude)
+        && let Ok(b) = std::env::var("ANYAGENT_CLAUDE_BIN") {
+            return b;
+        }
+    harness.bin().to_string()
 }
 
 fn pump_loop(
@@ -579,6 +590,17 @@ mod tests {
         assert_eq!(v[0], std::env::var("ANYAGENT_CLAUDE_BIN").unwrap_or_else(|_| "claude".into()));
         assert_eq!(v[1], "--settings");
         assert_eq!(v[2], "{}");
+        assert_eq!(v.last().unwrap(), "hi");
+    }
+
+    #[test]
+    fn build_argv_custom_harness_uses_its_binary() {
+        let o = Options {
+            harness: Harness::Custom("/opt/bin/claude-fork".into()),
+            ..opts()
+        };
+        let v = build_argv(&o, "{}");
+        assert_eq!(v[0], "/opt/bin/claude-fork");
         assert_eq!(v.last().unwrap(), "hi");
     }
 
