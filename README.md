@@ -36,12 +36,13 @@ If no prompt argument is given, the prompt is read from stdin.
 
 ## Harnesses
 
-`-H` / `--harness <name|path>` selects which agent CLI to drive. Today only the
-`claude` harness is implemented; `codex`, `opencode`, `gemini`, and `pi` are
-recognised and reserved (selecting one fails fast until it's wired up). A value
-that isn't a known name is treated as a path to a **claude-compatible** binary
-and driven with the Claude protocol — handy for a fork or a wrapper shim. The
-default is `claude`.
+`-H` / `--harness <name|path>` selects which agent CLI to drive. Implemented
+today: `claude` (interactive TUI under a PTY + Stop hook) and `codex` (the
+natively non-interactive `codex exec`, driven as a plain subprocess — no
+PTY/hook). `opencode`, `gemini`, and `pi` are recognised and reserved
+(selecting one fails fast until it's wired up). A value that isn't a known name
+is treated as a path to a **claude-compatible** binary and driven with the
+Claude protocol — handy for a fork or a wrapper shim. The default is `claude`.
 
 ## How it works
 

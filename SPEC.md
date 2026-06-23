@@ -126,9 +126,12 @@ matching label. (`31`/`32` are reserved for Phases 6/4.)
 
 `Adapter::run(opts, stream_out) -> Result<RunOutcome, DriverError>`, dispatched
 via `adapters::for_harness`. CLI flags map onto `Options` (see `args.rs`).
-`-H`/`--harness` chooses the backend (only the `claude` protocol is implemented
-today; a custom path is driven as a claude-compatible binary).
-`ANYAGENT_CLAUDE_BIN` overrides the `claude` binary.
+`-H`/`--harness` chooses the backend. Implemented: `claude` (PTY + Stop hook)
+and `codex` (`codex exec`, a plain subprocess reading the `--json` event
+stream); a custom path is driven as a claude-compatible binary.
+`ANYAGENT_CLAUDE_BIN` overrides the `claude` binary. The codex adapter reads
+`model_resolved` from codex's session rollout file (`turn_context.payload.model`)
+since the event stream omits it.
 
 ## 5. Test plan
 

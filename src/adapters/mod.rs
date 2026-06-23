@@ -26,6 +26,7 @@ use crate::harness::Harness;
 use crate::transcript::Summary;
 
 pub mod claude;
+pub mod codex;
 
 /// A backend agent CLI that anyagent can drive to run a single prompt to
 /// completion. Implementations shell out to the native harness binary.
@@ -49,7 +50,8 @@ pub trait Adapter {
 pub fn for_harness(harness: &Harness) -> Option<Box<dyn Adapter>> {
     match harness {
         Harness::Claude | Harness::Custom(_) => Some(Box::new(claude::ClaudeAdapter)),
-        Harness::Codex | Harness::Opencode | Harness::Gemini | Harness::Pi => None,
+        Harness::Codex => Some(Box::new(codex::CodexAdapter)),
+        Harness::Opencode | Harness::Gemini | Harness::Pi => None,
     }
 }
 
