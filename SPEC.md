@@ -140,7 +140,19 @@ fields carry the requested tiers and achieved class (`null` when unrequested).
 A stable API: `0` ok · `10` agent-error · `20` timeout · `30`
 harness-not-found · `31` invalid-model · `32` enforcement-unsupported · `130`
 interrupted · `2` internal. The `exit_status` metadata field carries the
-matching label. (`31`/`32` are reserved for Phases 6/4.)
+matching label.
+
+### 3.5 Model validation
+
+`--model default` is the explicit way to request the harness's own default
+(reported as `model_requested: "default"`); any other value passes through and
+the harness validates it live. Neither harness exposes a model-enumeration
+command, so validation is in-band: when the harness rejects the model the
+adapter classifies it (`RunOutcome::invalid_model`) and exit is 31
+(`invalid-model`) with the harness's own message surfaced, rather than the
+generic agent-error. The codex adapter detects this from its `error`/
+`turn.failed` event text; the claude PTY path does not yet classify it
+distinctly.
 
 ## 3.4 Commands
 

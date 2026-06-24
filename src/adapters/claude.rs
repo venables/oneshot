@@ -281,6 +281,9 @@ pub fn run(opts: &Options, mut stream_out: Option<&mut dyn Write>) -> Result<Run
         summary,
         duration_ms,
         streamed,
+        // The claude PTY path doesn't yet classify a model rejection distinctly
+        // (it would surface as a generic startup/agent error).
+        invalid_model: false,
     })
 }
 

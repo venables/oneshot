@@ -110,6 +110,11 @@ swallowing it lets callers that invoke `claude -p "..."` point at anyagent
 unchanged. A user-supplied `--settings` is rejected (we inject our own settings
 for the Stop hook).
 
+`--model default` is the explicit way to ask for the harness's own default
+(reported as `model_requested: "default"`); any other value passes through and
+the harness validates it live. When the harness rejects a model, exit is `31`
+with its own message — e.g. codex's _"The 'x' model is not supported…"_.
+
 > **Note:** `--flag=value` works for any flag, and common claude value-flags
 > (`--allowedTools`, `--system-prompt`, `--add-dir`, `--resume`, …) forward
 > with their values. A _space-separated_ value for an _unrecognised_ flag is
@@ -165,16 +170,16 @@ read-only / workspace-write).
 
 Exit codes are a stable API orchestrators can branch on.
 
-| Code  | `exit_status`             | Meaning                                                |
-| ----- | ------------------------- | ------------------------------------------------------ |
-| `0`   | `ok`                      | Success.                                               |
-| `10`  | `agent-error`             | Assistant errored, or no message recoverable.          |
-| `20`  | `timeout`                 | Timed out (before or after the UI came up).            |
-| `30`  | `harness-not-found`       | The selected harness has no adapter.                   |
-| `31`  | `invalid-model`           | Unknown model for the harness (reserved).              |
-| `32`  | `enforcement-unsupported` | Harness can't meet `--require-enforcement` (reserved). |
-| `130` | `interrupted`             | Interrupted (SIGINT/SIGTERM).                          |
-| `2`   | `internal`                | Wrapper internal error (spawn/PTY/IO).                 |
+| Code  | `exit_status`             | Meaning                                       |
+| ----- | ------------------------- | --------------------------------------------- |
+| `0`   | `ok`                      | Success.                                      |
+| `10`  | `agent-error`             | Assistant errored, or no message recoverable. |
+| `20`  | `timeout`                 | Timed out (before or after the UI came up).   |
+| `30`  | `harness-not-found`       | The selected harness has no adapter.          |
+| `31`  | `invalid-model`           | Harness rejected the requested model.         |
+| `32`  | `enforcement-unsupported` | Harness can't meet `--require-enforcement`.   |
+| `130` | `interrupted`             | Interrupted (SIGINT/SIGTERM).                 |
+| `2`   | `internal`                | Wrapper internal error (spawn/PTY/IO).        |
 
 ## Caveats
 

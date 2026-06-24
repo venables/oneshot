@@ -72,6 +72,23 @@ struct Folded {
     usage: Usage,
     num_turns: u32,
     is_error: bool,
+    /// The harness's own error text, surfaced to the user on failure.
+    error_message: String,
+    /// The error looks like the harness rejecting the requested model.
+    invalid_model: bool,
+}
+
+/// Heuristic: does a harness error message indicate the model was rejected?
+/// Matched against codex's own error text (e.g. "The 'x' model is not
+/// supported ..."), so exit 31 reflects the harness's live verdict.
+fn looks_like_model_error(msg: &str) -> bool {
+    let m = msg.to_ascii_lowercase();
+    m.contains("model")
+        && (m.contains("not supported")
+            || m.contains("not found")
+            || m.contains("does not exist")
+            || m.contains("unknown model")
+            || m.contains("invalid model"))
 }
 
 /// Fold one event line into the running state. Unknown lines are ignored, so a
@@ -116,7 +133,24 @@ fn fold_event(state: &mut Folded, line: &str) {
             }
         }
         // Any failure/error event marks the run as errored.
-        t if t.contains("failed") || t == "error" => state.is_error = true,
+        t if t.contains("failed") || t == "error" => {
+            state.is_error = true;
+            let msg = obj
+                .get("message")
+                .and_then(Value::as_str)
+                .or_else(|| {
+                    obj.get("error")
+                        .and_then(|e| e.get("message"))
+                        .and_then(Value::as_str)
+                })
+                .unwrap_or_default();
+            if !msg.is_empty() {
+                state.error_message = msg.to_string();
+            }
+            if looks_like_model_error(msg) {
+                state.invalid_model = true;
+            }
+        }
         _ => {}
     }
 }
@@ -318,8 +352,16 @@ fn run(opts: &Options, mut stream_out: Option<&mut dyn Write>) -> Result<RunOutc
     let model = resolve_model(&folded.session_id).unwrap_or_default();
     let duration_ms = start.elapsed().as_millis() as u64;
 
+    // On failure with no agent message, surface the harness's own error text so
+    // the user sees why (e.g. an unsupported-model message) instead of nothing.
+    let final_text = if folded.final_text.is_empty() && !folded.error_message.is_empty() {
+        folded.error_message
+    } else {
+        folded.final_text
+    };
+
     let summary = Summary {
-        final_text: folded.final_text,
+        final_text,
         session_id: folded.session_id,
         model,
         is_error: folded.is_error,
@@ -343,6 +385,7 @@ fn run(opts: &Options, mut stream_out: Option<&mut dyn Write>) -> Result<RunOutc
         summary,
         duration_ms,
         streamed,
+        invalid_model: folded.invalid_model,
     })
 }
 
@@ -392,6 +435,28 @@ mod tests {
         let mut f = Folded::default();
         fold_event(&mut f, r#"{"type":"turn.failed","error":{"message":"boom"}}"#);
         assert!(f.is_error);
+        assert!(!f.invalid_model);
+        assert_eq!(f.error_message, "boom");
+    }
+
+    #[test]
+    fn model_rejection_flags_invalid_model() {
+        let mut f = Folded::default();
+        fold_event(
+            &mut f,
+            r#"{"type":"error","message":"The 'bogus' model is not supported when using Codex with a ChatGPT account."}"#,
+        );
+        assert!(f.is_error);
+        assert!(f.invalid_model);
+    }
+
+    #[test]
+    fn detects_model_error_phrasings() {
+        assert!(looks_like_model_error("The 'x' model is not supported"));
+        assert!(looks_like_model_error("unknown model: y"));
+        assert!(looks_like_model_error("that model does not exist"));
+        assert!(!looks_like_model_error("rate limit exceeded"));
+        assert!(!looks_like_model_error("the network is unreachable"));
     }
 
     #[test]

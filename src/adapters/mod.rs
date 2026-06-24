@@ -107,6 +107,10 @@ pub struct RunOutcome {
     /// True if stream-json output was already written live to the caller's
     /// stream writer; the caller must not re-emit.
     pub streamed: bool,
+    /// True when the run failed specifically because the harness rejected the
+    /// requested model -- mapped to exit 31 (`invalid-model`) rather than the
+    /// generic agent-error.
+    pub invalid_model: bool,
 }
 
 #[derive(Debug)]

@@ -23,9 +23,6 @@ pub enum ExitStatus {
     AgentError,
     Timeout,
     HarnessNotFound,
-    // Constructed once model validation (Phase 6) lands; defined now so the
-    // exit-code taxonomy is stable from the start.
-    #[allow(dead_code)]
     InvalidModel,
     EnforcementUnsupported,
     Interrupted,

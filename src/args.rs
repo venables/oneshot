@@ -170,7 +170,17 @@ pub fn parse(args: &[String]) -> Result<Options, ArgError> {
             "--output-format" => {
                 opts.output_format = parse_output_format(value(inline, args, &mut i, flag)?)?;
             }
-            "--model" => opts.model = Some(value(inline, args, &mut i, flag)?.to_string()),
+            "--model" => {
+                // `--model default` explicitly requests the harness's own
+                // default (reported as model_requested "default"); any other
+                // value passes through and the harness validates it live.
+                let v = value(inline, args, &mut i, flag)?;
+                opts.model = if v == "default" {
+                    None
+                } else {
+                    Some(v.to_string())
+                };
+            }
             "--cwd" => opts.cwd = Some(value(inline, args, &mut i, flag)?.to_string()),
             "--meta-file" => opts.meta_file = Some(value(inline, args, &mut i, flag)?.to_string()),
             "--perms" => {
@@ -371,6 +381,14 @@ mod tests {
         let o = parse(&v(&["--resume=abc123", "hi"])).unwrap();
         assert!(o.extra_args.windows(2).any(|w| w == ["--resume", "abc123"]));
         assert_eq!(o.prompt, "hi");
+    }
+
+    #[test]
+    fn model_default_maps_to_none() {
+        let o = parse(&v(&["--model", "default", "hi"])).unwrap();
+        assert_eq!(o.model, None);
+        let o = parse(&v(&["--model", "opus", "hi"])).unwrap();
+        assert_eq!(o.model.as_deref(), Some("opus"));
     }
 
     #[test]

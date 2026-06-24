@@ -138,7 +138,9 @@ fn run(mut opts: Options) -> ExitCode {
 
     match adapter.run(&opts, stream_arg) {
         Ok(outcome) => {
-            let status = if outcome.summary.is_error {
+            let status = if outcome.invalid_model {
+                ExitStatus::InvalidModel
+            } else if outcome.summary.is_error {
                 ExitStatus::AgentError
             } else {
                 ExitStatus::Ok
