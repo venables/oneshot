@@ -6,23 +6,15 @@ deliberately incomplete.
 
 ## Known limitations (from the spike)
 
-- [ ] **claude metadata (`model_resolved`/usage) is `unknown`/0.** Root-caused:
-      claude exposes the resolved model + token usage only in its session
-      transcript JSONL, and that file is written by `claude -p` (print mode) or
-      a clean TUI exit — **not** while our PTY-driven interactive session is
-      alive (verified: the file never appears even after 15s alive, and the
-      Stop hook payload omits model + usage). SIGTERM/SIGINT to the process
-      group do not make it flush. Codex is unaffected (it exposes both). Fix
-      options, in order of preference: 1. **Print-mode-preferred claude adapter** — when `claude -p` works on the
-      box, drive it that way (it writes the transcript + returns usage/cost);
-      keep the PTY drive as the fallback for environments where `-p` is
-      broken (anyagent's original premise). This makes claude metadata fully
-      authoritative where possible. Contradicts "always interactive", so it
-      is a deliberate design change — flagged for a decision. 2. **Clean interactive quit** — make claude flush by sending the in-app
-      quit _keystrokes_ through the PTY (raw-mode Ctrl-C / Ctrl-D), not a
-      signal, then wait for the transcript. A first attempt hung (writer/quit
-      interaction); needs the pump thread to own the quit write and a robust
-      exit-detection, not `master.take_writer()` from a second thread.
+- [x] **claude metadata (`model_resolved`/usage).** RESOLVED. The default
+      `claude` harness now drives `claude -p` (print mode); its JSON envelope's
+      `modelUsage` key is the authoritative `model_resolved`, and usage/cost
+      come straight from it. The PTY drive moved to the `claude-pty` harness as
+      a fallback. (Background: claude writes its transcript only in print mode
+      or on a clean TUI exit — never while a PTY-driven session is alive, and
+      the Stop payload omits model + usage; verified the transcript never
+      appears even after 15s alive, and SIGTERM/SIGINT don't flush it. So
+      `claude-pty` honestly reports `unknown`/0; use `claude` for metadata.)
 
 - [ ] **Flag passthrough fidelity (partial).** `--flag=value` and a known set
       of claude value-flags (`KNOWN_VALUE_FLAGS` in `src/args.rs`) now forward

@@ -21,9 +21,11 @@ anyagent's job is to tell the truth about both. Principles:
 4. **stdout is sacred.** It carries only the agent's answer; metadata goes to
    `--meta-file`, logs to stderr.
 
-Harnesses are driven by [`Adapter`]s in `src/adapters/`. A harness with a real
-non-interactive mode (codex `codex exec`) is a plain subprocess adapter. claude
-has none, so its adapter emulates print mode by driving the interactive TUI:
+Harnesses are driven by [`Adapter`]s in `src/adapters/`. Harnesses with a real
+non-interactive mode are plain subprocess adapters: codex (`codex exec`) and
+claude (`claude -p`, the default). The `claude-pty` adapter is a fallback for
+environments where `claude -p` is unavailable; it emulates print mode by
+driving the interactive TUI, which is where the PTY machinery is needed:
 
 1. A real PTY is required — Ink (claude's TUI runtime) bails on non-TTY stdin.
 2. The terminal must answer DA1 / DA2 / XTVERSION / cursor-position /
@@ -58,20 +60,23 @@ argv -> hook harness (FIFO + relay script + --settings)
 
 ### Modules (`src/`)
 
-| File                 | Responsibility                                                              |
-| -------------------- | --------------------------------------------------------------------------- |
-| `main.rs`            | CLI entry; stdin prompt; adapter dispatch; format dispatch; exit codes.     |
-| `args.rs`            | Argparse; rejects `--settings`; forwards unknown flags.                     |
-| `harness.rs`         | `--harness` selection; known names + custom path.                           |
-| `adapters/mod.rs`    | `Adapter` trait; `for_harness` dispatch; shared `RunOutcome`/`DriverError`. |
-| `adapters/claude.rs` | Claude protocol: pump thread, FIFO poll, streaming, teardown.               |
-| `dec.rs`             | Stateful DEC/XTerm query responder (carry buffer across reads).             |
-| `hook.rs`            | Temp dir + FIFO + relay script + inline `--settings` JSON; payload parse.   |
-| `pty.rs`             | PTY spawn (execs argv directly — no `sh -c`).                               |
-| `stream.rs`          | `read_at`-based transcript tailer (holds back torn lines).                  |
-| `transcript.rs`      | Session JSONL parser → final text + usage + flags.                          |
-| `emit.rs`            | text / json / stream-json formatters.                                       |
-| `signals.rs`         | SIGINT/SIGTERM → flag; lets the loop tear down and exit 130.                |
+| File                        | Responsibility                                                              |
+| --------------------------- | --------------------------------------------------------------------------- |
+| `main.rs`                   | CLI entry; stdin prompt; adapter dispatch; format dispatch; exit codes.     |
+| `args.rs`                   | Argparse; rejects `--settings`; forwards unknown flags.                     |
+| `harness.rs`                | `--harness` selection; known names + custom path.                           |
+| `adapters/mod.rs`           | `Adapter` trait; `for_harness` dispatch; shared `RunOutcome`/`DriverError`. |
+| `adapters/claude.rs`        | Default claude adapter: `claude -p`, parse the JSON result envelope.        |
+| `adapters/claude_pty.rs`    | claude-pty fallback: PTY drive, pump thread, FIFO poll, Stop hook.          |
+| `adapters/claude_common.rs` | Shared claude bits: bin resolution, perms flags, enforcement.               |
+| `adapters/codex.rs`         | codex adapter: `codex exec --json`, fold events, rollout model lookup.      |
+| `dec.rs`                    | Stateful DEC/XTerm query responder (carry buffer across reads).             |
+| `hook.rs`                   | Temp dir + FIFO + relay script + inline `--settings` JSON; payload parse.   |
+| `pty.rs`                    | PTY spawn (execs argv directly — no `sh -c`).                               |
+| `stream.rs`                 | `read_at`-based transcript tailer (holds back torn lines).                  |
+| `transcript.rs`             | Session JSONL parser → final text + usage + flags.                          |
+| `emit.rs`                   | text / json / stream-json formatters.                                       |
+| `signals.rs`                | SIGINT/SIGTERM → flag; lets the loop tear down and exit 130.                |
 
 Adapters live in `src/adapters/`: each backend agent CLI implements the
 `Adapter` trait in its own module, so adding a harness is "drop a file in
@@ -128,16 +133,21 @@ JSON object, distinct from the answer on stdout: `harness`, `harness_version`
 `"unknown"` rather than an echo when the harness never exposed it. Requesting a
 meta file forces the transcript read even for `text` output.
 
-**Per-harness reality.** codex exposes the resolved model + usage reliably (its
-rollout file / `--json` stream), so its metadata is fully authoritative. claude
-exposes model + usage _only_ in its session transcript, and that transcript is
-written by `claude -p` (print mode) or a clean TUI exit — **not** while a
-PTY-driven interactive session is alive, and the Stop hook payload omits both.
-So for the claude harness, `model_resolved` is honestly `"unknown"` and usage
-is `0` today. Closing that gap requires getting the transcript to flush (a
-clean interactive quit) or a print-mode path for claude — see TODO. This is the
-honest-`unknown` behavior the spec mandates, but it is the headline feature not
-yet delivering on the headline harness.
+**Per-harness reality.** The default adapters expose `model_resolved` + usage
+authoritatively:
+
+- **claude** (default, `claude -p`): the print-mode JSON envelope carries
+  `result`, `usage`, `total_cost_usd`, `session_id`, and `modelUsage` — an
+  object keyed by the model that actually ran. `model_resolved` is that key,
+  read straight from claude's own output.
+- **codex** (`codex exec`): usage from the `--json` stream; model from the
+  session rollout file.
+- **claude-pty** (the PTY fallback, `--harness claude-pty`): claude writes its
+  transcript only in print mode or on a clean TUI exit — **not** while the
+  PTY-driven session is alive — and the Stop payload omits model + usage, so
+  this fallback honestly reports `model_resolved: "unknown"` and usage `0`. Use
+  the default `claude` harness for authoritative metadata; reach for
+  `claude-pty` only where `claude -p` is unavailable.
 
 ### 3.2 Permissions & enforcement
 

@@ -27,6 +27,8 @@ use crate::policy::{Enforcement, Network, Perms};
 use crate::transcript::Summary;
 
 pub mod claude;
+pub mod claude_common;
+pub mod claude_pty;
 pub mod codex;
 
 /// A backend agent CLI that anyagent can drive to run a single prompt to
@@ -60,6 +62,7 @@ pub trait Adapter {
 pub fn for_harness(harness: &Harness) -> Option<Box<dyn Adapter>> {
     match harness {
         Harness::Claude | Harness::Custom(_) => Some(Box::new(claude::ClaudeAdapter)),
+        Harness::ClaudePty => Some(Box::new(claude_pty::ClaudePtyAdapter)),
         Harness::Codex => Some(Box::new(codex::CodexAdapter)),
         Harness::Opencode | Harness::Gemini | Harness::Pi => None,
     }

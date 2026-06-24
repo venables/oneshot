@@ -63,15 +63,30 @@ output-modes: text, json, stream-json
 
 ## Harnesses
 
-`-H` / `--harness <name|path>` selects which agent CLI to drive. Implemented
-today: `claude` (interactive TUI under a PTY + Stop hook) and `codex` (the
-natively non-interactive `codex exec`, driven as a plain subprocess — no
-PTY/hook). `opencode`, `gemini`, and `pi` are recognised and reserved
-(selecting one fails fast until it's wired up). A value that isn't a known name
-is treated as a path to a **claude-compatible** binary and driven with the
-Claude protocol — handy for a fork or a wrapper shim. The default is `claude`.
+`-H` / `--harness <name|path>` selects which agent CLI to drive. Implemented today:
+
+- **`claude`** (default) — `claude -p` print mode, a plain subprocess.
+  Authoritative metadata: model, usage, and cost come straight from claude's
+  own JSON envelope.
+- **`claude-pty`** — the same `claude`, driven through the interactive TUI under
+  a PTY + Stop hook. A fallback for environments where `claude -p` is
+  unavailable; it can't expose model/usage (see Caveats), so prefer `claude`.
+- **`codex`** — the natively non-interactive `codex exec`, a plain subprocess.
+
+`opencode`, `gemini`, and `pi` are recognised and reserved (selecting one fails
+fast until it's wired up). A value that isn't a known name is treated as a path
+to a **claude-compatible** binary and driven via `claude -p` — handy for a fork
+or a wrapper shim. The default is `claude`.
 
 ## How it works
+
+The default **`claude`** harness simply runs `claude -p --output-format json`
+and parses the result envelope (answer, usage, cost, and the `modelUsage` key
+that gives the authoritative model). codex similarly runs `codex exec --json`.
+Neither needs a PTY.
+
+The **`claude-pty`** fallback is the original mechanism — driving the
+interactive TUI under a PTY, for environments where `claude -p` doesn't work:
 
 1. Spawns `claude "<prompt>" --settings '<inline-json>'` on a real PTY
    (`openpty`/`forkpty` via `portable-pty`). The prompt is a positional arg,
@@ -186,6 +201,11 @@ Exit codes are a stable API orchestrators can branch on.
 
 - **macOS / Linux only** (no Windows; needs a Unix PTY).
 - **Requires `claude` on `$PATH`** (or set `ANYAGENT_CLAUDE_BIN`, below).
+- **`claude-pty` can't report model/usage.** claude writes its transcript only
+  in print mode or on a clean TUI exit — not while the PTY session is alive, and
+  the Stop payload omits both — so `claude-pty` honestly reports
+  `model_resolved: "unknown"` and usage `0`. Use the default `claude` harness
+  for authoritative metadata.
 - **Per-message streaming, not per-token.** `stream-json` emits transcript
   lines as `claude` flushes them, then a trailing `result` envelope.
   Per-token streaming needs `claude -p --include-partial-messages`, which is

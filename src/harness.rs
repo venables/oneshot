@@ -13,12 +13,16 @@
 //! directly (this subsumes the `ANYAGENT_CLAUDE_BIN` escape hatch).
 
 /// Known harness names, in the order shown in help/error text.
-pub const KNOWN_NAMES: &[&str] = &["claude", "codex", "opencode", "gemini", "pi"];
+pub const KNOWN_NAMES: &[&str] = &["claude", "claude-pty", "codex", "opencode", "gemini", "pi"];
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub enum Harness {
+    /// Default claude harness, driven via `claude -p` (print mode).
     #[default]
     Claude,
+    /// claude driven via the interactive TUI under a PTY -- the fallback for
+    /// environments where `claude -p` is unavailable.
+    ClaudePty,
     Codex,
     Opencode,
     Gemini,
@@ -34,6 +38,7 @@ impl Harness {
     pub fn parse(s: &str) -> Self {
         match s.to_ascii_lowercase().as_str() {
             "claude" => Self::Claude,
+            "claude-pty" => Self::ClaudePty,
             "codex" => Self::Codex,
             "opencode" => Self::Opencode,
             "gemini" => Self::Gemini,
@@ -46,6 +51,7 @@ impl Harness {
     pub fn name(&self) -> &str {
         match self {
             Self::Claude => "claude",
+            Self::ClaudePty => "claude-pty",
             Self::Codex => "codex",
             Self::Opencode => "opencode",
             Self::Gemini => "gemini",
@@ -71,7 +77,8 @@ impl Harness {
     /// The binary anyagent spawns for this harness.
     pub fn bin(&self) -> &str {
         match self {
-            Self::Claude => "claude",
+            // claude-pty drives the same `claude` binary, just interactively.
+            Self::Claude | Self::ClaudePty => "claude",
             Self::Codex => "codex",
             Self::Opencode => "opencode",
             Self::Gemini => "gemini",
@@ -79,7 +86,6 @@ impl Harness {
             Self::Custom(s) => s,
         }
     }
-
 }
 
 #[cfg(test)]
@@ -109,9 +115,15 @@ mod tests {
     }
 
     #[test]
-    fn bin_matches_name_for_known_harnesses() {
+    fn name_round_trips_for_known_harnesses() {
         for n in KNOWN_NAMES {
-            assert_eq!(Harness::parse(n).bin(), *n);
+            assert_eq!(Harness::parse(n).name(), *n);
         }
+    }
+
+    #[test]
+    fn claude_pty_drives_the_claude_binary() {
+        assert_eq!(Harness::ClaudePty.bin(), "claude");
+        assert_eq!(Harness::ClaudePty.name(), "claude-pty");
     }
 }
