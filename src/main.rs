@@ -1,6 +1,13 @@
-//! anyagent: a drop-in replacement for `claude -p` that drives the interactive
-//! `claude` TUI under a PTY and captures the final assistant message via a
-//! Stop hook. Output on stdout matches `claude -p` for the same prompt.
+//! anyagent: one non-interactive interface in front of any coding-agent CLI.
+//!
+//! A thin adapter, not an orchestrator: it normalizes how you *invoke* and
+//! *observe* a one-shot agent run across harnesses while preserving each
+//! agent's native behavior. stdout carries only the answer; the authoritative
+//! run metadata (`--meta-file`) reports the truth about what model ran and what
+//! was actually enforced -- the two things every harness is otherwise vague
+//! about. Commands: `run` (default; bare prompt is sugar), `list`,
+//! `capabilities`. Adapters live in `src/adapters/` (claude via PTY + Stop
+//! hook; codex via `codex exec`).
 
 mod adapters;
 mod args;

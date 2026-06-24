@@ -427,12 +427,9 @@ fn build_argv(opts: &Options, settings_json: &str) -> Vec<String> {
     // requested directly maps to the same bypass.
     let bypass = opts.skip_permissions
         || matches!(opts.perms, Some(Perms::WorkspaceWrite) | Some(Perms::Full));
-    match opts.perms {
-        Some(Perms::ReadOnly) => {
-            v.push("--permission-mode".to_string());
-            v.push("plan".to_string());
-        }
-        _ => {}
+    if matches!(opts.perms, Some(Perms::ReadOnly)) {
+        v.push("--permission-mode".to_string());
+        v.push("plan".to_string());
     }
     if bypass {
         v.push("--dangerously-skip-permissions".to_string());

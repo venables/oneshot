@@ -1,15 +1,29 @@
 # anyagent — Specification
 
-A Rust CLI that emulates `claude -p` (print mode) by driving the `claude`
-binary in **interactive mode** under a PTY, submitting the prompt as a
-positional argument, and capturing the final assistant message via a `Stop`
-hook. Stdout matches what `claude -p` would emit for the same prompt and flags.
+A Rust CLI that puts **one non-interactive interface in front of any
+coding-agent CLI**. It is a thin _adapter_, not an orchestrator: it normalizes
+how you invoke and observe a one-shot agent run across harnesses while
+preserving each agent's native behavior, and it makes the invocation surface
+and the reporting trustworthy. Fan-out, parallelism, and synthesis stay with
+the caller.
 
-## 1. Premise
+## 1. Premise & principles
 
-Print mode may be unavailable or unreliable in a given environment. The
-remaining option for non-interactive use is to run `claude` interactively and
-look like a real terminal:
+The two things every harness is vague about — _what model actually ran_ and
+_what was actually enforced_ — are the two an orchestrator most needs to trust.
+anyagent's job is to tell the truth about both. Principles:
+
+1. **Honest over uniform.** Where harnesses genuinely differ (enforcement
+   strength, model identity), report the difference — never paper over it.
+2. **Fail fast, never silently default.** An unknown model or an unmeetable
+   enforcement demand errors out (exit 31 / 32) rather than silently degrading.
+3. **One-shot first.** Sessions are an optional add-on, not the core model.
+4. **stdout is sacred.** It carries only the agent's answer; metadata goes to
+   `--meta-file`, logs to stderr.
+
+Harnesses are driven by [`Adapter`]s in `src/adapters/`. A harness with a real
+non-interactive mode (codex `codex exec`) is a plain subprocess adapter. claude
+has none, so its adapter emulates print mode by driving the interactive TUI:
 
 1. A real PTY is required — Ink (claude's TUI runtime) bails on non-TTY stdin.
 2. The terminal must answer DA1 / DA2 / XTVERSION / cursor-position /
