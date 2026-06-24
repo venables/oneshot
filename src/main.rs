@@ -58,6 +58,10 @@ fn main() -> ExitCode {
         Command::ListHarnesses => render(command::list_harnesses),
         Command::ListModels { harness } => render(|w| command::list_models(w, harness)),
         Command::Capabilities { harness } => render(|w| command::capabilities(w, harness)),
+        Command::Help => render(|w| w.write_all(command::HELP.as_bytes())),
+        Command::Version => render(|w| {
+            writeln!(w, "{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"))
+        }),
     }
 }
 

@@ -18,11 +18,25 @@ pub enum Command {
     ListHarnesses,
     ListModels { harness: Option<Harness> },
     Capabilities { harness: Option<Harness> },
+    Help,
+    Version,
 }
 
 /// Parse argv (excluding argv[0]) into a command.
 pub fn parse(raw: &[String]) -> Result<Command, ArgError> {
+    // `--help`/`--version` win wherever they appear among the options (before a
+    // `--`), so `anyagent run --help` and a bare `anyagent --help` both work. A
+    // prompt that literally needs the token can use `run -- "--help"`.
+    let opt_tokens = || raw.iter().take_while(|a| a.as_str() != "--");
+    if opt_tokens().any(|a| a == "-h" || a == "--help") {
+        return Ok(Command::Help);
+    }
+    if opt_tokens().any(|a| a == "-V" || a == "--version") {
+        return Ok(Command::Version);
+    }
+
     match raw.first().map(String::as_str) {
+        Some("help") => Ok(Command::Help),
         Some("run") => Ok(Command::Run(Box::new(args::parse(&raw[1..])?))),
         Some("list") => parse_list(&raw[1..]),
         Some("capabilities") | Some("caps") => Ok(Command::Capabilities {
@@ -32,6 +46,46 @@ pub fn parse(raw: &[String]) -> Result<Command, ArgError> {
         _ => Ok(Command::Run(Box::new(args::parse(raw)?))),
     }
 }
+
+/// Top-level `--help` text.
+pub const HELP: &str = "\
+anyagent — one non-interactive interface in front of any coding-agent CLI.
+
+A thin adapter, not an orchestrator: it runs one agent well and reports the
+truth about what model ran and what was enforced. stdout carries only the
+answer; metadata goes to --meta-file; logs go to stderr.
+
+Usage:
+  anyagent [run] [options] [--] \"<prompt>\"   run a one-shot prompt
+  anyagent list harnesses                     installed/implemented harnesses + versions
+  anyagent list models [--harness <name>]     best-effort model discovery
+  anyagent capabilities [--harness <name>]    per-harness perms→enforcement, network, outputs
+  anyagent --help | --version
+
+`run` is the default; a bare prompt is sugar for it, and if no prompt is given
+it is read from stdin. `run`/`list`/`capabilities` are only recognised as the
+first argument.
+
+Run options:
+  -H, --harness <name|path>   claude (default) | codex | path to a claude-compatible binary
+      --model <id|default>    model id; 'default' requests the harness's own default
+      --output-format <fmt>   text (default) | json ({answer,metadata}) | stream-json
+      --perms <tier>          read-only | workspace-write | full   (permission tier, by intent)
+      --network <tier>        none | restricted | full             (network tier, by intent)
+      --require-enforcement <class>   os-sandbox | any   (else exit 32 before running)
+      --meta-file <path>      write the authoritative run-metadata envelope here
+      --cwd <path>            working directory for the agent
+      --timeout <seconds>     wall-time cap (default 300)
+      --dangerously-skip-permissions
+      --cols <n> / --rows <n> PTY size for the claude harness (default 120×40)
+  -d, --debug                 wrapper + harness debug traces on stderr
+      --                      end of options; the rest is the prompt
+
+Exit codes:
+  0  ok                  10 agent-error          20 timeout
+  30 harness-not-found   31 invalid-model        32 enforcement-unsupported
+  130 interrupted        2  internal
+";
 
 fn parse_list(rest: &[String]) -> Result<Command, ArgError> {
     match rest.first().map(String::as_str) {
@@ -173,6 +227,25 @@ mod tests {
 
     fn v(args: &[&str]) -> Vec<String> {
         args.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn help_and_version_detected() {
+        assert!(matches!(parse(&v(&["--help"])).unwrap(), Command::Help));
+        assert!(matches!(parse(&v(&["-h"])).unwrap(), Command::Help));
+        assert!(matches!(parse(&v(&["help"])).unwrap(), Command::Help));
+        assert!(matches!(parse(&v(&["run", "--help"])).unwrap(), Command::Help));
+        assert!(matches!(parse(&v(&["--version"])).unwrap(), Command::Version));
+        assert!(matches!(parse(&v(&["-V"])).unwrap(), Command::Version));
+    }
+
+    #[test]
+    fn help_token_after_dashdash_is_a_prompt() {
+        // `run -- "--help"` must run, not show help.
+        match parse(&v(&["run", "--", "--help"])).unwrap() {
+            Command::Run(o) => assert_eq!(o.prompt, "--help"),
+            _ => panic!("expected Run"),
+        }
     }
 
     #[test]

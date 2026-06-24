@@ -42,6 +42,7 @@ anyagent run [flags] -- "<prompt>"  # explicit run
 anyagent list harnesses             # installed + implemented/reserved + version
 anyagent list models [--harness X]  # best-effort model discovery
 anyagent capabilities [--harness X] # per-harness perms->enforcement, network, outputs
+anyagent --help | --version
 ```
 
 `run`/`list`/`capabilities` are recognised only as the first argument (like
