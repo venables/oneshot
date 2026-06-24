@@ -142,6 +142,17 @@ harness-not-found · `31` invalid-model · `32` enforcement-unsupported · `130`
 interrupted · `2` internal. The `exit_status` metadata field carries the
 matching label. (`31`/`32` are reserved for Phases 6/4.)
 
+## 3.4 Commands
+
+`command.rs` parses argv into a `Command`: `run` (the default; bare prompt is
+sugar), `list harnesses`, `list models [--harness X]`, `capabilities
+[--harness X]`. Subcommands are recognised only as the first argument, so a
+bare prompt still works. `capabilities` renders the per-harness perms ->
+enforcement map, network control, and output modes from the `Adapter` trait, so
+callers stop hardcoding harness knowledge. `list models` is best-effort: codex
+has no enumeration command, so it reports the configured default from
+`config.toml`; claude exposes none, so it points at the aliases.
+
 ## 4. Public surface
 
 `Adapter::run(opts, stream_out) -> Result<RunOutcome, DriverError>`, dispatched

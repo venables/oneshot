@@ -54,6 +54,20 @@ impl Harness {
         }
     }
 
+    /// Best-effort harness version: run `<bin> --version` and return the first
+    /// non-empty trimmed line. `None` if the binary is absent or errors.
+    pub fn probe_version(&self) -> Option<String> {
+        let out = std::process::Command::new(self.bin())
+            .arg("--version")
+            .output()
+            .ok()?;
+        let text = String::from_utf8_lossy(&out.stdout);
+        text.lines()
+            .map(str::trim)
+            .find(|l| !l.is_empty())
+            .map(str::to_string)
+    }
+
     /// The binary anyagent spawns for this harness.
     pub fn bin(&self) -> &str {
         match self {

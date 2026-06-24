@@ -149,6 +149,22 @@ fn codex_home() -> Option<PathBuf> {
     std::env::var("HOME").ok().map(|h| PathBuf::from(h).join(".codex"))
 }
 
+/// Best-effort: the configured default model from `$CODEX_HOME/config.toml`.
+/// codex has no model-enumeration command, so this is the most we can probe
+/// without making a paid call.
+pub fn configured_model() -> Option<String> {
+    let contents = std::fs::read_to_string(codex_home()?.join("config.toml")).ok()?;
+    for line in contents.lines() {
+        let line = line.trim();
+        if let Some(rest) = line.strip_prefix("model")
+            && let Some(val) = rest.trim_start().strip_prefix('=')
+        {
+            return Some(val.trim().trim_matches('"').to_string());
+        }
+    }
+    None
+}
+
 /// Best-effort lookup of the resolved model from the rollout file whose name
 /// contains `session_id`, under `$CODEX_HOME/sessions`.
 fn resolve_model(session_id: &str) -> Option<String> {

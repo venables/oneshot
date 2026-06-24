@@ -4,6 +4,7 @@
 
 mod adapters;
 mod args;
+mod command;
 mod dec;
 mod emit;
 mod harness;
@@ -19,6 +20,7 @@ use std::io::{IsTerminal, Read, Write};
 use std::process::ExitCode;
 
 use args::{Options, OutputFormat};
+use command::Command;
 use meta::{ExitStatus, Metadata};
 
 /// Write the authoritative metadata envelope to `--meta-file` when requested.
@@ -36,14 +38,36 @@ fn main() -> ExitCode {
     signals::install();
 
     let raw: Vec<String> = std::env::args().skip(1).collect();
-    let mut opts = match args::parse(&raw) {
-        Ok(o) => o,
+    let command = match command::parse(&raw) {
+        Ok(c) => c,
         Err(e) => {
             eprintln!("anyagent: {e}");
             return ExitCode::from(2);
         }
     };
 
+    match command {
+        Command::Run(opts) => run(*opts),
+        Command::ListHarnesses => render(command::list_harnesses),
+        Command::ListModels { harness } => render(|w| command::list_models(w, harness)),
+        Command::Capabilities { harness } => render(|w| command::capabilities(w, harness)),
+    }
+}
+
+/// Run a discovery command (`list`/`capabilities`) to stdout.
+fn render(f: impl FnOnce(&mut dyn Write) -> std::io::Result<()>) -> ExitCode {
+    let stdout = std::io::stdout();
+    let mut out = stdout.lock();
+    match f(&mut out) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("anyagent: write failed: {e}");
+            ExitCode::from(ExitStatus::Internal.code())
+        }
+    }
+}
+
+fn run(mut opts: Options) -> ExitCode {
     // Resolve the adapter that drives the selected harness. Reserved
     // harness names (codex, gemini, ...) have no adapter yet, so they fail
     // fast rather than silently behaving like claude.

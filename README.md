@@ -34,6 +34,32 @@ anyagent --harness claude "which harness am I?"
 
 If no prompt argument is given, the prompt is read from stdin.
 
+## Commands
+
+```bash
+anyagent "<prompt>"                 # sugar for `run` with defaults
+anyagent run [flags] -- "<prompt>"  # explicit run
+anyagent list harnesses             # installed + implemented/reserved + version
+anyagent list models [--harness X]  # best-effort model discovery
+anyagent capabilities [--harness X] # per-harness perms->enforcement, network, outputs
+```
+
+`run`/`list`/`capabilities` are recognised only as the first argument (like
+git); any other first token is treated as a prompt, so a prompt starting with
+one of those words can be forced with `anyagent run -- "run the tests"`.
+`capabilities` is what lets an orchestrator stop hardcoding harness knowledge:
+
+```
+$ anyagent capabilities --harness codex
+harness: codex
+perms:
+  read-only        os-sandbox
+  workspace-write  os-sandbox
+  full             none
+network-control: yes (sandbox blocks network)
+output-modes: text, json, stream-json
+```
+
 ## Harnesses
 
 `-H` / `--harness <name|path>` selects which agent CLI to drive. Implemented

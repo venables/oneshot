@@ -77,6 +77,7 @@ pub enum ArgError {
     BadOutputFormat(String),
     BadNumber(String),
     BadValue { flag: String, value: String, allowed: String },
+    Usage(String),
 }
 
 impl std::fmt::Display for ArgError {
@@ -94,6 +95,7 @@ impl std::fmt::Display for ArgError {
             Self::BadValue { flag, value, allowed } => {
                 write!(f, "invalid {flag} {value:?} ({allowed})")
             }
+            Self::Usage(msg) => write!(f, "{msg}"),
         }
     }
 }
