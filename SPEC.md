@@ -155,11 +155,17 @@ authoritatively:
 the tier to its harness's native mechanism and reports the **enforcement
 class** it actually achieves — `os-sandbox`, `agent-policy`, or `none`:
 
-| intent            | codex                          | enforcement | claude                   | enforcement  |
-| ----------------- | ------------------------------ | ----------- | ------------------------ | ------------ |
-| `read-only`       | `--sandbox read-only`          | os-sandbox  | `--permission-mode plan` | agent-policy |
-| `workspace-write` | `--sandbox workspace-write`    | os-sandbox  | bypassPermissions        | none         |
-| `full`            | `--sandbox danger-full-access` | none        | bypassPermissions        | none         |
+| intent            | codex                          | enforcement | claude                | enforcement  |
+| ----------------- | ------------------------------ | ----------- | --------------------- | ------------ |
+| `read-only`       | `--sandbox read-only`          | os-sandbox  | `--disallowedTools …` | agent-policy |
+| `workspace-write` | `--sandbox workspace-write`    | os-sandbox  | bypassPermissions     | none         |
+| `full`            | `--sandbox danger-full-access` | none        | bypassPermissions     | none         |
+
+claude's `read-only` denies the mutating tools
+(`--disallowedTools "Edit Write NotebookEdit Bash WebFetch WebSearch"`) rather
+than `--permission-mode plan`: plan mode silently overrides `--model` (it
+substitutes its own), which would run a read-only review on the wrong model.
+Tool denial keeps the requested model and the same agent-policy class.
 
 `--require-enforcement <os-sandbox|any>` is checked before spawn
 (`adapters::check_enforcement`): if the harness's class for the requested tier

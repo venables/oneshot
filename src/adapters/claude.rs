@@ -85,8 +85,10 @@ fn build_argv(opts: &Options) -> Vec<String> {
         v.push("--model".to_string());
         v.push(m.clone());
     }
-    v.extend(claude_common::perms_args(opts));
     v.extend(opts.extra_args.iter().cloned());
+    // perms_args last: `--disallowedTools` is variadic, so keep it adjacent to
+    // the `--` terminator where it can't swallow a forwarded flag's value.
+    v.extend(claude_common::perms_args(opts));
     // `--` so a prompt beginning with `-` is the positional prompt, not a flag.
     v.push("--".to_string());
     v.push(opts.prompt.clone());

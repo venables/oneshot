@@ -19,15 +19,25 @@ pub fn resolve_bin(harness: &Harness) -> String {
     harness.bin().to_string()
 }
 
-/// Native claude flags for the requested permission tier: read-only is policy
-/// (`--permission-mode plan`); write tiers use bypassPermissions
+/// Tools denied for the `read-only` tier: file writes, command execution, and
+/// network. claude's plan mode would be the obvious mapping, but
+/// `--permission-mode plan` *silently overrides `--model`* (it substitutes its
+/// own model), so a read-only review would run the wrong model. Denying the
+/// mutating tools instead keeps the requested model and the same agent-policy
+/// enforcement, and is a better fit for review anyway (read/grep/reason, no
+/// writes). Keep this list complete and in sync as claude adds write/effect
+/// tools (note: `MultiEdit` is not a current tool name).
+const READ_ONLY_DISALLOWED: &str = "Edit Write NotebookEdit Bash WebFetch WebSearch";
+
+/// Native claude flags for the requested permission tier. read-only denies the
+/// mutating tools (agent-policy); write tiers use bypassPermissions
 /// (`--dangerously-skip-permissions`), as does `--dangerously-skip-permissions`
 /// requested directly.
 pub fn perms_args(opts: &Options) -> Vec<String> {
     let mut v = Vec::new();
     if matches!(opts.perms, Some(Perms::ReadOnly)) {
-        v.push("--permission-mode".to_string());
-        v.push("plan".to_string());
+        v.push("--disallowedTools".to_string());
+        v.push(READ_ONLY_DISALLOWED.to_string());
     }
     let bypass = opts.skip_permissions
         || matches!(opts.perms, Some(Perms::WorkspaceWrite) | Some(Perms::Full));
@@ -56,12 +66,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn read_only_is_plan_mode() {
+    fn read_only_disallows_mutating_tools_not_plan_mode() {
         let opts = Options {
             perms: Some(Perms::ReadOnly),
             ..Options::default()
         };
-        assert_eq!(perms_args(&opts), vec!["--permission-mode", "plan"]);
+        // Must NOT use plan mode (it silently overrides --model).
+        let args = perms_args(&opts);
+        assert!(!args.iter().any(|a| a == "plan"));
+        assert_eq!(args, vec!["--disallowedTools", READ_ONLY_DISALLOWED]);
+        // The denial list blocks the core write/exec tools.
+        for tool in ["Edit", "Write", "Bash"] {
+            assert!(READ_ONLY_DISALLOWED.contains(tool));
+        }
         assert_eq!(perms_enforcement(Perms::ReadOnly), Enforcement::AgentPolicy);
     }
 

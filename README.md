@@ -142,11 +142,11 @@ with its own message — e.g. codex's _"The 'x' model is not supported…"_.
 native mechanism, and the metadata reports the **enforcement class** actually
 achieved — honestly, instead of a uniform-looking flag that lies.
 
-| intent            | codex (`codex exec`)                     | claude                                  |
-| ----------------- | ---------------------------------------- | --------------------------------------- |
-| `read-only`       | `--sandbox read-only` (os-sandbox)       | `--permission-mode plan` (agent-policy) |
-| `workspace-write` | `--sandbox workspace-write` (os-sandbox) | bypassPermissions (none)                |
-| `full`            | `--sandbox danger-full-access` (none)    | bypassPermissions (none)                |
+| intent            | codex (`codex exec`)                     | claude                               |
+| ----------------- | ---------------------------------------- | ------------------------------------ |
+| `read-only`       | `--sandbox read-only` (os-sandbox)       | `--disallowedTools …` (agent-policy) |
+| `workspace-write` | `--sandbox workspace-write` (os-sandbox) | bypassPermissions (none)             |
+| `full`            | `--sandbox danger-full-access` (none)    | bypassPermissions (none)             |
 
 `--require-enforcement os-sandbox` makes the difference enforceable: it fails
 fast (exit 32) when the harness can't meet the demand, before anything runs.
