@@ -273,12 +273,21 @@ fn run(opts: &Options, mut stream_out: Option<&mut dyn Write>) -> Result<RunOutc
     let start = Instant::now();
     let timeout = Duration::from_millis(opts.timeout_ms);
 
+    // Codex floods stderr with its own diagnostics (skill-load errors, MCP
+    // worker failures, "Reading prompt from stdin..."). That noise would drown
+    // the run, so we silence it by default -- the actual failure reason still
+    // reaches us as `error`/`turn.failed` events on the JSON stdout stream.
+    // `--debug` passes it through for troubleshooting.
+    let stderr = if opts.debug {
+        Stdio::inherit()
+    } else {
+        Stdio::null()
+    };
     let mut child = Command::new("codex")
         .args(build_argv(opts))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        // Codex writes progress/diagnostics to stderr; let them flow to ours.
-        .stderr(Stdio::inherit())
+        .stderr(stderr)
         .spawn()
         .map_err(|e| DriverError::Spawn(e.into()))?;
 
