@@ -230,32 +230,42 @@ ANYAGENT_E2E=1 ANYAGENT_CLAUDE_BIN=/path/to/claude \
 
 ## Packaging (npm)
 
-**Not published to npm yet** — `package.json` is marked `"private": true` to
-prevent a broken publish. The reason: a Rust binary is platform-specific, but
-the package declares `os: [darwin, linux]` × `cpu: [x64, arm64]` while shipping a
-single `bin/anyagent`. Whichever machine runs `npm publish` bakes in that one
-target, and the static `os`/`cpu` fields still let mismatched platforms install
-it and get a binary that won't run. There is also no CI to build the matrix.
+anyagent ships as a main launcher package plus one prebuilt per-platform package
+(the esbuild/swc model). A Rust binary is platform-specific, so a single tarball
+can't be portable; instead each platform gets its own package with the correct
+`os`/`cpu` and its own binary, and npm installs only the matching one.
 
-Install from source in the meantime:
-
-```bash
-cargo install --path .
-# or: cargo build --release && use ./target/release/anyagent
+```
+anyagent                    # bin/anyagent.js launcher; optionalDependencies below
+  anyagent-darwin-arm64     # npm/darwin-arm64  (os: darwin, cpu: arm64)
+  anyagent-linux-x64        # npm/linux-x64     (os: linux,  cpu: x64)
 ```
 
-To publish for real, pick one and drop `"private"`:
+The launcher (`bin/anyagent.js`) resolves `anyagent-<platform>-<arch>` and execs
+its `bin/anyagent`, inheriting the terminal's stdio so anyagent still drives its
+own PTY. Only the one platform package npm selected is installed; if none
+matches, the launcher points the user at `cargo install --path .`.
 
-- **Per-platform `optionalDependencies`** (esbuild/swc model): a CI matrix builds
-  all four targets and publishes one package each (correct `os`/`cpu` + its
-  binary); the main package resolves the right one via a tiny launcher. Correct
-  and `npx`-friendly.
-- **`postinstall` downloader**: one package whose postinstall fetches the
-  matching prebuilt binary from a GitHub Release. Simpler to publish, needs
-  network at install time.
+Supported targets today: **darwin-arm64** (Apple Silicon) and **linux-x64**. Add
+a target by dropping a `npm/<platform>-<arch>/package.json`, a line in the
+release matrix, and a pin in the main `optionalDependencies`.
 
-Either way, add a `prepublishOnly` script that builds and copies the binary so a
-publish can't ship an empty `bin/`.
+**Releasing.** Push a `vX.Y.Z` tag. `.github/workflows/release.yml` builds each
+target on its native runner, then `scripts/sync-versions.mjs` stamps the tag
+version across every package (and the dependency pins) and publishes the
+platform packages before the main one. Requires an `NPM_TOKEN` repo secret with
+publish rights. (The per-platform `bin/anyagent` binaries are gitignored build
+artifacts, placed by CI.) To cut a release:
+
+```bash
+git tag v0.1.0 && git push origin v0.1.0
+```
+
+Install once published:
+
+```bash
+npm i -g anyagent   # or: npx anyagent "<prompt>"
+```
 
 ## License
 

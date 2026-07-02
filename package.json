@@ -1,22 +1,21 @@
 {
   "name": "anyagent",
   "version": "0.1.0",
-  "private": true,
   "description": "One non-interactive interface in front of any coding agent (claude today, more later), driving the interactive TUI under a PTY",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/venables/anyagent.git"
+  },
   "bin": {
-    "anyagent": "bin/anyagent"
+    "anyagent": "bin/anyagent.js"
   },
   "files": [
-    "bin/anyagent",
+    "bin/anyagent.js",
     "README.md"
   ],
-  "os": [
-    "darwin",
-    "linux"
-  ],
-  "cpu": [
-    "x64",
-    "arm64"
-  ]
+  "optionalDependencies": {
+    "anyagent-darwin-arm64": "0.1.0",
+    "anyagent-linux-x64": "0.1.0"
+  }
 }
