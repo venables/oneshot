@@ -230,21 +230,32 @@ ANYAGENT_E2E=1 ANYAGENT_CLAUDE_BIN=/path/to/claude \
 
 ## Packaging (npm)
 
-The npm package ships the compiled binary directly — `bin` points at
-`bin/anyagent`, so `npm install` symlinks it with no Node shim in the path.
-Before publishing, build and copy the binary into place:
+**Not published to npm yet** — `package.json` is marked `"private": true` to
+prevent a broken publish. The reason: a Rust binary is platform-specific, but
+the package declares `os: [darwin, linux]` × `cpu: [x64, arm64]` while shipping a
+single `bin/anyagent`. Whichever machine runs `npm publish` bakes in that one
+target, and the static `os`/`cpu` fields still let mismatched platforms install
+it and get a binary that won't run. There is also no CI to build the matrix.
+
+Install from source in the meantime:
 
 ```bash
-cargo build --release
-install -m 755 target/release/anyagent bin/anyagent   # gitignored; shipped via "files"
-npm publish
+cargo install --path .
+# or: cargo build --release && use ./target/release/anyagent
 ```
 
-> A single tarball contains one binary, so it is **platform-specific** (it
-> matches the machine it was built on). To cover macOS + Linux × x64 + arm64,
-> publish one package per target, or move to per-platform `optionalDependencies`
-> (which reintroduces a small launcher). The `os`/`cpu` fields gate installs but
-> do not make one binary portable.
+To publish for real, pick one and drop `"private"`:
+
+- **Per-platform `optionalDependencies`** (esbuild/swc model): a CI matrix builds
+  all four targets and publishes one package each (correct `os`/`cpu` + its
+  binary); the main package resolves the right one via a tiny launcher. Correct
+  and `npx`-friendly.
+- **`postinstall` downloader**: one package whose postinstall fetches the
+  matching prebuilt binary from a GitHub Release. Simpler to publish, needs
+  network at install time.
+
+Either way, add a `prepublishOnly` script that builds and copies the binary so a
+publish can't ship an empty `bin/`.
 
 ## License
 

@@ -1,6 +1,7 @@
 {
   "name": "anyagent",
   "version": "0.1.0",
+  "private": true,
   "description": "One non-interactive interface in front of any coding agent (claude today, more later), driving the interactive TUI under a PTY",
   "license": "MIT",
   "bin": {
