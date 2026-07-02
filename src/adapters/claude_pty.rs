@@ -65,6 +65,10 @@ impl Adapter for ClaudePtyAdapter {
         run(opts, stream_out)
     }
 
+    fn drive(&self) -> &'static str {
+        "pty"
+    }
+
     fn perms_enforcement(&self, perms: Perms) -> Enforcement {
         claude_common::perms_enforcement(perms)
     }
@@ -410,7 +414,11 @@ fn payload_only_summary(msg: &str, fields: &PayloadFields) -> Summary {
 }
 
 fn build_argv(opts: &Options, settings_json: &str) -> Vec<String> {
+    // Pin a relative, path-like bin to absolute so `--cwd` (the PTY child's cwd)
+    // doesn't relocate where the binary resolves. Fall back to the raw bin only
+    // if the launch dir can't be read (spawn then surfaces the real error).
     let bin = claude_common::resolve_bin(&opts.harness);
+    let bin = claude_common::pin_program(bin.clone(), opts.cwd.as_deref()).unwrap_or(bin);
     let mut v = vec![bin, "--settings".to_string(), settings_json.to_string()];
     if let Some(m) = &opts.model {
         v.push("--model".to_string());

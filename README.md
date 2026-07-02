@@ -167,9 +167,10 @@ read-only / workspace-write).
 
   `model_resolved` is read from the transcript (the launcher's truth), not the
   agent's self-report; it is `"unknown"` when the harness never exposed it.
-  `drive` is `"print"` for the native non-interactive mode or `"pty"` for the
-  `--pty` fallback — so a `"pty"` run's `unknown`/0 model+usage reads as a mode
-  limitation, not missing data.
+  `drive` is adapter-provided — `"print"` (claude native), `"exec"` (codex), or
+  `"pty"` for the `--pty` fallback (`"unknown"` when no adapter ran) — so a
+  `"pty"` run's `unknown`/0 model+usage reads as a mode limitation, not missing
+  data (and it never claims `"pty"` for a harness with no PTY drive).
 
 ## Exit codes
 

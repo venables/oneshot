@@ -17,6 +17,7 @@ use std::time::{Duration, Instant};
 use serde_json::Value;
 
 use crate::adapters::claude_common;
+use crate::adapters::procgroup;
 use crate::adapters::{Adapter, DriverError, RunOutcome};
 use crate::args::{Options, OutputFormat};
 use crate::policy::{Enforcement, Network, Perms};
@@ -35,6 +36,10 @@ impl Adapter for ClaudeAdapter {
         stream_out: Option<&mut dyn Write>,
     ) -> Result<RunOutcome, DriverError> {
         run(opts, stream_out)
+    }
+
+    fn drive(&self) -> &'static str {
+        "print"
     }
 
     fn perms_enforcement(&self, perms: Perms) -> Enforcement {
@@ -157,13 +162,23 @@ fn run(opts: &Options, mut stream_out: Option<&mut dyn Write>) -> Result<RunOutc
     // claude prints diagnostics to stderr; silence it unless --debug (the
     // result we need is the structured stdout).
     let stderr = if opts.debug { Stdio::inherit() } else { Stdio::null() };
-    let mut child = Command::new(&build_argv(opts)[0])
-        .args(&build_argv(opts)[1..])
+    let argv = build_argv(opts);
+    // Pin a relative, path-like program to an absolute path so `--cwd` doesn't
+    // relocate where the binary itself resolves (see `claude_common`).
+    let program = claude_common::pin_program(argv[0].clone(), opts.cwd.as_deref())
+        .map_err(|e| DriverError::Spawn(e.into()))?;
+    let mut cmd = Command::new(&program);
+    cmd.args(&argv[1..])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(stderr)
-        .spawn()
-        .map_err(|e| DriverError::Spawn(e.into()))?;
+        .stderr(stderr);
+    if let Some(cwd) = &opts.cwd {
+        cmd.current_dir(cwd);
+    }
+    // claude -p spawns its own tool subprocesses; lead a process group so an
+    // interrupt/timeout can tear the whole tree down, not just the top process.
+    procgroup::lead_process_group(&mut cmd);
+    let mut child = cmd.spawn().map_err(|e| DriverError::Spawn(e.into()))?;
 
     let stdout = child.stdout.take().expect("piped stdout");
     let (tx, rx) = mpsc::channel::<String>();
@@ -189,13 +204,13 @@ fn run(opts: &Options, mut stream_out: Option<&mut dyn Write>) -> Result<RunOutc
 
     loop {
         if signals::interrupted() {
-            let _ = child.kill();
+            procgroup::terminate_group(child.id());
             let _ = child.wait();
             let _ = reader.join();
             return Err(DriverError::Interrupted);
         }
         if start.elapsed() > timeout {
-            let _ = child.kill();
+            procgroup::terminate_group(child.id());
             let _ = child.wait();
             let _ = reader.join();
             return Err(DriverError::StopTimeout);

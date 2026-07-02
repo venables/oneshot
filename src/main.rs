@@ -39,8 +39,9 @@ fn build_meta(
     duration_ms: u64,
     status: ExitStatus,
     enforcement: Option<policy::Enforcement>,
+    drive: &'static str,
 ) -> Metadata {
-    let mut m = Metadata::build(opts, summary, duration_ms, status, enforcement);
+    let mut m = Metadata::build(opts, summary, duration_ms, status, enforcement, drive);
     m.harness_version = opts.harness.probe_version();
     m
 }
@@ -109,11 +110,12 @@ fn run(mut opts: Options) -> ExitCode {
             );
             write_meta_file(
                 &opts,
-                &build_meta(&opts, None, 0, ExitStatus::HarnessNotFound, None),
+                &build_meta(&opts, None, 0, ExitStatus::HarnessNotFound, None, "unknown"),
             );
             return ExitCode::from(ExitStatus::HarnessNotFound.code());
         }
     };
+    let drive = adapter.drive();
 
     // No positional prompt: read it from stdin (so multiline prompts and pipes
     // work without shell escaping).
@@ -136,8 +138,16 @@ fn run(mut opts: Options) -> ExitCode {
     }
 
     // The enforcement class achieved for the requested perms tier (if any),
-    // reported in metadata and used for the --require-enforcement preflight.
-    let enforcement = opts.perms.map(|p| adapter.perms_enforcement(p));
+    // reported in metadata. A bypass flag disables enforcement outright, so
+    // report `Unenforced` rather than the tier's nominal class (the preflight
+    // in `check_enforcement` rejects the same combination up front).
+    let enforcement = opts.perms.map(|p| {
+        if opts.skip_permissions {
+            policy::Enforcement::Unenforced
+        } else {
+            adapter.perms_enforcement(p)
+        }
+    });
 
     // Fail fast, before spawning, if the harness can't meet a demanded
     // enforcement class. This is what turns "the prompt is a firewall, not a
@@ -146,7 +156,7 @@ fn run(mut opts: Options) -> ExitCode {
         eprintln!("anyagent: {msg}");
         write_meta_file(
             &opts,
-            &build_meta(&opts, None, 0, ExitStatus::EnforcementUnsupported, enforcement),
+            &build_meta(&opts, None, 0, ExitStatus::EnforcementUnsupported, enforcement, drive),
         );
         return ExitCode::from(ExitStatus::EnforcementUnsupported.code());
     }
@@ -177,6 +187,7 @@ fn run(mut opts: Options) -> ExitCode {
                 outcome.duration_ms,
                 status,
                 enforcement,
+                drive,
             );
             write_meta_file(&opts, &metadata);
 
@@ -204,7 +215,7 @@ fn run(mut opts: Options) -> ExitCode {
         Err(e) => {
             eprintln!("anyagent: {e}");
             let status = e.status();
-            write_meta_file(&opts, &build_meta(&opts, None, 0, status, enforcement));
+            write_meta_file(&opts, &build_meta(&opts, None, 0, status, enforcement, drive));
             ExitCode::from(status.code())
         }
     }

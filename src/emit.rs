@@ -104,7 +104,7 @@ mod tests {
         use crate::args::Options;
         use crate::meta::{ExitStatus, Metadata};
         let s = summary();
-        let metadata = Metadata::build(&Options::default(), Some(&s), 50, ExitStatus::Ok, None);
+        let metadata = Metadata::build(&Options::default(), Some(&s), 50, ExitStatus::Ok, None, "print");
         let mut buf = Vec::new();
         emit_answer_json(&mut buf, &s, &metadata).unwrap();
         let v: serde_json::Value = serde_json::from_slice(&buf).unwrap();

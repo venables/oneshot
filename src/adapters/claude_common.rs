@@ -19,6 +19,19 @@ pub fn resolve_bin(harness: &Harness) -> String {
     harness.bin().to_string()
 }
 
+/// Pin a relative, path-like program to an absolute path against the launch dir
+/// when `cwd` is set, so `--cwd` doesn't relocate where the binary itself
+/// resolves (`./shim`, `bin/claude`). A bare PATH name (no separator) is left
+/// unchanged. Uses `join` (the binary need not exist yet) and errors only if the
+/// current dir can't be read -- never silently falls back to the relative path.
+pub fn pin_program(program: String, cwd: Option<&str>) -> std::io::Result<String> {
+    if cwd.is_some() && program.contains('/') && std::path::Path::new(&program).is_relative() {
+        Ok(std::env::current_dir()?.join(&program).to_string_lossy().into_owned())
+    } else {
+        Ok(program)
+    }
+}
+
 /// Tools denied for the `read-only` tier: file writes, command execution, and
 /// network. claude's plan mode would be the obvious mapping, but
 /// `--permission-mode plan` *silently overrides `--model`* (it substitutes its

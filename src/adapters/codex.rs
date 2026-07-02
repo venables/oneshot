@@ -11,15 +11,18 @@
 //! launcher's truth -- and fall back to `"unknown"` rather than echoing the
 //! requested model.
 
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
+use crate::adapters::procgroup;
 use crate::adapters::{Adapter, DriverError, RunOutcome};
 use crate::args::Options;
 use crate::policy::{Enforcement, Network, Perms};
@@ -27,6 +30,12 @@ use crate::signals;
 use crate::transcript::{Summary, Usage};
 
 const POLL: Duration = Duration::from_millis(50);
+/// Cap on captured stderr surfaced when codex fails without a JSON error event.
+const STDERR_TAIL_CAP: usize = 8192;
+/// Bounded wait for the detached stderr reader to drain before snapshotting the
+/// tail for a failure diagnostic -- long enough to catch a fast startup/auth
+/// failure, short enough to never stall a real run.
+const STDERR_DRAIN_WAIT: Duration = Duration::from_millis(200);
 
 /// Drives the `codex` CLI via its non-interactive `exec` subcommand.
 pub struct CodexAdapter;
@@ -38,6 +47,10 @@ impl Adapter for CodexAdapter {
         stream_out: Option<&mut dyn Write>,
     ) -> Result<RunOutcome, DriverError> {
         run(opts, stream_out)
+    }
+
+    fn drive(&self) -> &'static str {
+        "exec"
     }
 
     fn perms_enforcement(&self, perms: Perms) -> Enforcement {
@@ -275,27 +288,70 @@ fn run(opts: &Options, mut stream_out: Option<&mut dyn Write>) -> Result<RunOutc
 
     // Codex floods stderr with its own diagnostics (skill-load errors, MCP
     // worker failures, "Reading prompt from stdin..."). That noise would drown
-    // the run, so we silence it by default -- the actual failure reason still
-    // reaches us as `error`/`turn.failed` events on the JSON stdout stream.
-    // `--debug` passes it through for troubleshooting.
-    let stderr = if opts.debug {
-        Stdio::inherit()
-    } else {
-        Stdio::null()
+    // the run, so we don't pass it through by default -- but we do capture the
+    // tail so a startup/auth failure that never reaches the JSON stdout stream
+    // still yields a diagnostic instead of an empty answer. `--debug` also
+    // mirrors it to our stderr live.
+    let mut child = {
+        let mut cmd = Command::new("codex");
+        cmd.args(build_argv(opts))
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        // codex exec spawns its own tool subprocesses; lead a process group so
+        // an interrupt/timeout tears the whole tree down, not just top-level.
+        procgroup::lead_process_group(&mut cmd);
+        cmd.spawn().map_err(|e| DriverError::Spawn(e.into()))?
     };
-    let mut child = Command::new("codex")
-        .args(build_argv(opts))
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(stderr)
-        .spawn()
-        .map_err(|e| DriverError::Spawn(e.into()))?;
 
-    // Feed the prompt on stdin, then close it so codex starts the turn.
+    // Feed the prompt on stdin from its own thread, then close it (dropping the
+    // handle) so codex starts the turn. Writing on a dedicated thread avoids a
+    // deadlock when the prompt exceeds the pipe buffer and codex has started
+    // writing stdout before draining stdin.
     if let Some(mut stdin) = child.stdin.take() {
-        let _ = stdin.write_all(opts.prompt.as_bytes());
-        // Dropping stdin closes it.
+        let prompt = opts.prompt.clone();
+        thread::spawn(move || {
+            let _ = stdin.write_all(prompt.as_bytes());
+        });
     }
+
+    // Drain stderr into a bounded byte tail (and mirror to our stderr under
+    // --debug) so it can't fill the pipe and block codex, while preserving the
+    // last bytes for a failure diagnostic. Read in fixed-size chunks (not
+    // read_until) so a newline-free flood can't buffer an unbounded line before
+    // the cap applies. Kept as raw bytes -- a mid-UTF-8 truncation or stray
+    // non-UTF-8 byte must not panic or abort the drain; we lossily decode only
+    // when surfacing. The thread is detached (never joined): a tool descendant
+    // that inherits stderr and outlives codex could otherwise hang a join
+    // forever, so we snapshot the shared tail after a bounded readiness wait.
+    let mut stderr_pipe = child.stderr.take().expect("piped stderr");
+    let debug = opts.debug;
+    let stderr_tail = Arc::new(Mutex::new(Vec::<u8>::new()));
+    let stderr_done = Arc::new(AtomicBool::new(false));
+    let stderr_tail_writer = Arc::clone(&stderr_tail);
+    let stderr_done_writer = Arc::clone(&stderr_done);
+    thread::spawn(move || {
+        let mut chunk = [0u8; 4096];
+        loop {
+            match stderr_pipe.read(&mut chunk) {
+                Ok(0) => break,
+                Ok(n) => {
+                    if debug {
+                        let _ = std::io::stderr().write_all(&chunk[..n]);
+                    }
+                    if let Ok(mut tail) = stderr_tail_writer.lock() {
+                        tail.extend_from_slice(&chunk[..n]);
+                        if tail.len() > STDERR_TAIL_CAP {
+                            let cut = tail.len() - STDERR_TAIL_CAP;
+                            tail.drain(..cut);
+                        }
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+        stderr_done_writer.store(true, Ordering::SeqCst);
+    });
 
     // Read stdout lines on a thread so the main loop can honor the timeout and
     // interrupts even while a read would otherwise block.
@@ -325,13 +381,13 @@ fn run(opts: &Options, mut stream_out: Option<&mut dyn Write>) -> Result<RunOutc
 
     loop {
         if signals::interrupted() {
-            let _ = child.kill();
+            procgroup::terminate_group(child.id());
             let _ = child.wait();
             let _ = reader.join();
             return Err(DriverError::Interrupted);
         }
         if start.elapsed() > timeout {
-            let _ = child.kill();
+            procgroup::terminate_group(child.id());
             let _ = child.wait();
             let _ = reader.join();
             return Err(DriverError::StopTimeout);
@@ -363,8 +419,25 @@ fn run(opts: &Options, mut stream_out: Option<&mut dyn Write>) -> Result<RunOutc
 
     // On failure with no agent message, surface the harness's own error text so
     // the user sees why (e.g. an unsupported-model message) instead of nothing.
-    let final_text = if folded.final_text.is_empty() && !folded.error_message.is_empty() {
+    // Prefer a JSON `error` event; if there is none (a failure before codex
+    // emitted any structured event -- auth, sandbox, startup), fall back to the
+    // captured stderr tail rather than returning an empty answer.
+    let final_text = if !folded.final_text.is_empty() {
+        folded.final_text
+    } else if !folded.error_message.is_empty() {
         folded.error_message
+    } else if folded.is_error {
+        // A startup/auth failure emits no JSON event, so nothing else delays
+        // this snapshot -- wait (bounded) for the detached reader to drain the
+        // pipe, then decode. Bounded so a descendant holding stderr can't stall.
+        let deadline = Instant::now() + STDERR_DRAIN_WAIT;
+        while !stderr_done.load(Ordering::SeqCst) && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(5));
+        }
+        stderr_tail
+            .lock()
+            .map(|t| String::from_utf8_lossy(&t).trim().to_string())
+            .unwrap_or_default()
     } else {
         folded.final_text
     };

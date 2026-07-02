@@ -61,10 +61,12 @@ impl ExitStatus {
 /// The authoritative metadata envelope.
 pub struct Metadata {
     pub harness: String,
-    /// How the harness was driven: `"print"` for its native non-interactive
-    /// mode (the default) or `"pty"` for the `--pty` interactive-TUI fallback.
-    /// Reported so a `"pty"` run's `unknown`/0 model+usage isn't mistaken for
-    /// missing data.
+    /// How the harness was actually driven, per the selected adapter:
+    /// `"print"` (claude native non-interactive), `"exec"` (codex), or `"pty"`
+    /// (the `--pty` interactive-TUI fallback), or `"unknown"` when no adapter
+    /// ran (harness-not-found). Adapter-provided, not inferred from `--pty`, so
+    /// it never claims `"pty"` for a harness that has no PTY drive. Reported so a
+    /// `"pty"` run's `unknown`/0 model+usage isn't mistaken for missing data.
     pub drive: &'static str,
     /// Best-effort harness version; `None` (serialized `null`) when unprobed.
     pub harness_version: Option<String>,
@@ -96,6 +98,7 @@ impl Metadata {
         duration_ms: u64,
         exit_status: ExitStatus,
         enforcement: Option<Enforcement>,
+        drive: &'static str,
     ) -> Self {
         let model_requested = opts.model.clone().unwrap_or_else(|| "default".to_string());
         let model_resolved = summary
@@ -105,7 +108,7 @@ impl Metadata {
             .to_string();
         Self {
             harness: opts.harness.name().to_string(),
-            drive: if opts.pty { "pty" } else { "print" },
+            drive,
             harness_version: None,
             model_requested,
             model_resolved,
@@ -187,7 +190,7 @@ mod tests {
             model: Some("opus".into()),
             ..Options::default()
         };
-        let m = Metadata::build(&opts, Some(&summary()), 100, ExitStatus::Ok, None);
+        let m = Metadata::build(&opts, Some(&summary()), 100, ExitStatus::Ok, None, "print");
         assert_eq!(m.model_requested, "opus");
         assert_eq!(m.model_resolved, "claude-opus-4-8");
         assert_eq!(m.to_json()["exit_status"], "ok");
@@ -195,18 +198,17 @@ mod tests {
     }
 
     #[test]
-    fn drive_reflects_pty_flag() {
-        let m = Metadata::build(&Options::default(), Some(&summary()), 1, ExitStatus::Ok, None);
+    fn drive_is_passed_through() {
+        let m = Metadata::build(&Options::default(), Some(&summary()), 1, ExitStatus::Ok, None, "print");
         assert_eq!(m.to_json()["drive"], "print");
 
-        let opts = Options { pty: true, ..Options::default() };
-        let m = Metadata::build(&opts, Some(&summary()), 1, ExitStatus::Ok, None);
+        let m = Metadata::build(&Options::default(), Some(&summary()), 1, ExitStatus::Ok, None, "pty");
         assert_eq!(m.to_json()["drive"], "pty");
     }
 
     #[test]
     fn requested_default_when_unspecified() {
-        let m = Metadata::build(&Options::default(), Some(&summary()), 1, ExitStatus::Ok, None);
+        let m = Metadata::build(&Options::default(), Some(&summary()), 1, ExitStatus::Ok, None, "print");
         assert_eq!(m.model_requested, "default");
     }
 
@@ -224,6 +226,7 @@ mod tests {
             1,
             ExitStatus::Ok,
             Some(Enforcement::AgentPolicy),
+            "print",
         );
         let j = m.to_json();
         assert_eq!(j["perms"], "read-only");
@@ -231,7 +234,7 @@ mod tests {
         assert_eq!(j["network"], "none");
 
         // Unset policy fields serialize as null.
-        let m = Metadata::build(&Options::default(), Some(&summary()), 1, ExitStatus::Ok, None);
+        let m = Metadata::build(&Options::default(), Some(&summary()), 1, ExitStatus::Ok, None, "print");
         assert!(m.to_json()["perms"].is_null());
         assert!(m.to_json()["enforcement"].is_null());
     }
@@ -239,13 +242,13 @@ mod tests {
     #[test]
     fn resolved_unknown_without_summary_or_model() {
         // No summary at all (failed run).
-        let m = Metadata::build(&Options::default(), None, 1, ExitStatus::Timeout, None);
+        let m = Metadata::build(&Options::default(), None, 1, ExitStatus::Timeout, None, "print");
         assert_eq!(m.model_resolved, "unknown");
 
         // Summary present but transcript never exposed the model.
         let mut s = summary();
         s.model = String::new();
-        let m = Metadata::build(&Options::default(), Some(&s), 1, ExitStatus::Ok, None);
+        let m = Metadata::build(&Options::default(), Some(&s), 1, ExitStatus::Ok, None, "print");
         assert_eq!(m.model_resolved, "unknown");
     }
 }

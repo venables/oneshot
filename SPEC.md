@@ -127,7 +127,8 @@ skip-permissions` does not suppress this dialog.)
 
 `--meta-file <path>` writes the authoritative run metadata (`meta.rs`) as a
 JSON object, distinct from the answer on stdout: `harness`, `drive`
-(`print` | `pty`), `harness_version` (best-effort), `model_requested`,
+(`print` | `exec` | `pty`, adapter-provided; `unknown` when no adapter ran),
+`harness_version` (best-effort), `model_requested`,
 `model_resolved`, `duration_ms`, `exit_status`, `session_id`, `num_turns`,
 `total_cost_usd`, `usage`.
 `model_resolved` is read from the transcript's assistant events

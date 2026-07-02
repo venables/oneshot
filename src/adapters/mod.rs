@@ -30,6 +30,7 @@ pub mod claude;
 pub mod claude_common;
 pub mod claude_pty;
 pub mod codex;
+pub mod procgroup;
 
 /// A backend agent CLI that anyagent can drive to run a single prompt to
 /// completion. Implementations shell out to the native harness binary.
@@ -42,6 +43,11 @@ pub trait Adapter {
         opts: &Options,
         stream_out: Option<&mut dyn Write>,
     ) -> Result<RunOutcome, DriverError>;
+
+    /// How this adapter drives the harness, for the `drive` metadata field:
+    /// `"print"` (native non-interactive), `"pty"`, or `"exec"`. Reported so a
+    /// `"pty"` run's `unknown`/0 model+usage isn't mistaken for missing data.
+    fn drive(&self) -> &'static str;
 
     /// The enforcement class this harness achieves for a permission tier --
     /// reported honestly (an OS sandbox vs merely agent policy vs nothing).
@@ -84,6 +90,17 @@ pub fn check_enforcement(adapter: &dyn Adapter, opts: &Options) -> Result<(), St
     };
     let harness = opts.harness.name();
 
+    // A bypass flag (`--dangerously-skip-permissions`) disables the harness's
+    // sandbox/policy outright, so no enforcement is actually achieved regardless
+    // of the requested tier. Reflect that here rather than trusting the tier map.
+    if opts.skip_permissions {
+        return Err(format!(
+            "{harness} cannot meet --require-enforcement {}: \
+             --dangerously-skip-permissions bypasses all enforcement",
+            req.label(),
+        ));
+    }
+
     if let Some(perms) = opts.perms {
         let actual = adapter.perms_enforcement(perms);
         if !req.satisfied_by(actual) {
@@ -109,6 +126,47 @@ pub fn check_enforcement(adapter: &dyn Adapter, opts: &Options) -> Result<(), St
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::policy::RequireEnforcement;
+
+    #[test]
+    fn bypass_fails_any_enforcement_demand() {
+        // codex read-only is normally an OS sandbox, but --dangerously-skip-
+        // permissions bypasses it, so a --require-enforcement demand must fail.
+        let opts = Options {
+            perms: Some(Perms::ReadOnly),
+            require_enforcement: Some(RequireEnforcement::OsSandbox),
+            skip_permissions: true,
+            harness: crate::harness::Harness::Codex,
+            ..Options::default()
+        };
+        let adapter = for_harness(&opts.harness, false).unwrap();
+        let err = check_enforcement(adapter.as_ref(), &opts).unwrap_err();
+        assert!(err.contains("dangerously-skip-permissions"), "got: {err}");
+    }
+
+    #[test]
+    fn enforcement_holds_without_bypass() {
+        let opts = Options {
+            perms: Some(Perms::ReadOnly),
+            require_enforcement: Some(RequireEnforcement::OsSandbox),
+            harness: crate::harness::Harness::Codex,
+            ..Options::default()
+        };
+        let adapter = for_harness(&opts.harness, false).unwrap();
+        assert!(check_enforcement(adapter.as_ref(), &opts).is_ok());
+    }
+
+    #[test]
+    fn adapter_drive_labels() {
+        assert_eq!(for_harness(&crate::harness::Harness::Claude, false).unwrap().drive(), "print");
+        assert_eq!(for_harness(&crate::harness::Harness::Claude, true).unwrap().drive(), "pty");
+        assert_eq!(for_harness(&crate::harness::Harness::Codex, false).unwrap().drive(), "exec");
+    }
 }
 
 pub struct RunOutcome {
