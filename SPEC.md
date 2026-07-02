@@ -65,7 +65,7 @@ argv -> hook harness (FIFO + relay script + --settings)
 | --------------------------- | --------------------------------------------------------------------------- |
 | `main.rs`                   | CLI entry; stdin prompt; adapter dispatch; format dispatch; exit codes.     |
 | `args.rs`                   | Argparse; rejects `--settings`; forwards unknown flags.                     |
-| `harness.rs`                | `--agent`/`--harness` selection; known names + custom path.                 |
+| `harness.rs`                | `--harness` selection; known names + custom path.                           |
 | `adapters/mod.rs`           | `Adapter` trait; `for_harness` dispatch; shared `RunOutcome`/`DriverError`. |
 | `adapters/claude.rs`        | Default claude adapter: `claude -p`, parse the JSON result envelope.        |
 | `adapters/claude_pty.rs`    | `--pty` fallback: PTY drive, pump thread, FIFO poll, Stop hook.             |
@@ -212,7 +212,8 @@ has no enumeration command, so it reports the configured default from
 
 `Adapter::run(opts, stream_out) -> Result<RunOutcome, DriverError>`, dispatched
 via `adapters::for_harness`. CLI flags map onto `Options` (see `args.rs`).
-`-A`/`--agent` (alias `-H`/`--harness`) chooses the backend. Implemented:
+`-H`/`--harness` chooses the backend (`--agent` is forwarded to claude's own
+subagent flag). Implemented:
 `claude` (`claude -p`, or the `--pty` fallback: PTY + Stop hook) and `codex`
 (`codex exec`, a plain subprocess reading the `--json` event stream); a custom
 path is driven as a claude-compatible binary.

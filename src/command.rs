@@ -58,8 +58,8 @@ answer; metadata goes to --meta-file; logs go to stderr.
 Usage:
   anyagent [run] [options] [--] \"<prompt>\"   run a one-shot prompt
   anyagent list harnesses                     installed/implemented harnesses + versions
-  anyagent list models [--agent <name>]       best-effort model discovery
-  anyagent capabilities [--agent <name>]      per-agent perms→enforcement, network, outputs
+  anyagent list models [--harness <name>]     best-effort model discovery
+  anyagent capabilities [--harness <name>]    per-harness perms→enforcement, network, outputs
   anyagent --help | --version
 
 `run` is the default; a bare prompt is sugar for it, and if no prompt is given
@@ -67,8 +67,7 @@ it is read from stdin. `run`/`list`/`capabilities` are only recognised as the
 first argument.
 
 Run options:
-  -A, --agent <name|path>     claude (default) | codex | path to a claude-compatible binary
-                              (alias: -H, --harness)
+  -H, --harness <name|path>   claude (default) | codex | path to a claude-compatible binary
       --model <id|default>    model id; 'default' requests the harness's own default
       --output-format <fmt>   text (default) | json ({answer,metadata}) | stream-json
       --perms <tier>          read-only | workspace-write | full   (permission tier, by intent)
@@ -102,7 +101,7 @@ fn parse_list(rest: &[String]) -> Result<Command, ArgError> {
     }
 }
 
-/// Scan for an `-A`/`--agent` (or `-H`/`--harness`) `<name>` (or `=name`) flag.
+/// Scan for a `-H`/`--harness <name>` (or `=name`) flag in `rest`.
 fn harness_flag(rest: &[String]) -> Result<Option<Harness>, ArgError> {
     let mut i = 0;
     while i < rest.len() {
@@ -111,7 +110,7 @@ fn harness_flag(rest: &[String]) -> Result<Option<Harness>, ArgError> {
             Some((f, v)) => (f, Some(v)),
             None => (a.as_str(), None),
         };
-        if matches!(flag, "-A" | "--agent" | "-H" | "--harness") {
+        if flag == "-H" || flag == "--harness" {
             let val = match inline {
                 Some(v) => v.to_string(),
                 None => {

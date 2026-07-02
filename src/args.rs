@@ -10,8 +10,9 @@
 //! Stop-hook capture. A user-supplied `--settings` is rejected: we inject our
 //! own `--settings` to register the Stop hook.
 //!
-//! `-A` / `--agent` selects which agent CLI to drive (`-H` / `--harness` is a
-//! kept alias for the internal noun; see `crate::harness`).
+//! `-H` / `--harness` selects which agent CLI to drive (see `crate::harness`).
+//! `--agent` is deliberately not used: claude has its own `--agent <subagent>`
+//! flag, which anyagent forwards through untouched.
 
 use crate::harness::Harness;
 use crate::policy::{Network, Perms, RequireEnforcement};
@@ -168,9 +169,10 @@ pub fn parse(args: &[String]) -> Result<Options, ArgError> {
             // print mode and break the Stop-hook capture.
             "-p" | "--print" => {}
             "--settings" => return Err(ArgError::SettingsRejected),
-            // `--agent` is the user-facing name; `-H`/`--harness` is kept as an
-            // alias for the internal noun (see `crate::harness`).
-            "-A" | "--agent" | "-H" | "--harness" => {
+            // `-H`/`--harness` (not `--agent`) selects the backend: claude has
+            // its own native `--agent <subagent>` flag, so anyagent leaves that
+            // name alone and forwards it through (see `KNOWN_VALUE_FLAGS`).
+            "-H" | "--harness" => {
                 opts.harness = Harness::parse(value(inline, args, &mut i, flag)?);
             }
             "--dangerously-skip-permissions" => opts.skip_permissions = true,
@@ -458,15 +460,14 @@ mod tests {
     }
 
     #[test]
-    fn agent_flag_aliases_harness() {
-        let o = parse(&v(&["--agent", "codex", "hi"])).unwrap();
-        assert_eq!(o.harness, Harness::Codex);
-
-        let o = parse(&v(&["-A", "opencode", "hi"])).unwrap();
-        assert_eq!(o.harness, Harness::Opencode);
-
-        let o = parse(&v(&["--agent=gemini", "hi"])).unwrap();
-        assert_eq!(o.harness, Harness::Gemini);
+    fn agent_flag_is_forwarded_not_harness_select() {
+        // `--agent` is claude's own subagent flag; anyagent must NOT consume it
+        // as harness selection -- it forwards it (with its value) to claude and
+        // leaves the harness at the default.
+        let o = parse(&v(&["--agent", "reviewer", "hi"])).unwrap();
+        assert_eq!(o.harness, Harness::default());
+        assert_eq!(o.prompt, "hi");
+        assert_eq!(o.extra_args, vec!["--agent", "reviewer"]);
     }
 
     #[test]

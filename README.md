@@ -43,8 +43,9 @@ output-modes: text, json, stream-json
 
 ## Harnesses
 
-`-A` / `--agent <name|path>` (alias `-H` / `--harness`) selects which agent CLI
-to drive. Implemented today:
+`-H` / `--harness <name|path>` selects which agent CLI to drive. (`--agent` is
+left alone so it forwards to claude's own `--agent <subagent>` flag.) Implemented
+today:
 
 - **`claude`** (default) — `claude -p` print mode, a plain subprocess.
   Authoritative metadata: model, usage, and cost come straight from claude's
@@ -88,8 +89,7 @@ under a PTY, for environments where `claude -p` doesn't work:
 ## Flags
 
 ```
---agent <name|path> | -A                  claude (default) | codex | … | /path
-                                          (alias: --harness | -H)
+--harness <name|path> | -H                claude (default) | codex | … | /path
 --output-format <text|json|stream-json>   default: text
 --model <name>
 --dangerously-skip-permissions
