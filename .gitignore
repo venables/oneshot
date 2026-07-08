@@ -1,6 +1,2 @@
 /target
 **/*.rs.bk
-node_modules
-# Per-platform binaries are build artifacts, placed by the release workflow into
-# each platform package before publish (shipped via that package's "files").
-npm/*/bin/anyagent
