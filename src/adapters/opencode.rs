@@ -6,9 +6,11 @@
 //!
 //! The event stream exposes the answer (`text` parts), token usage and cost
 //! (`step_finish`), and the session id (`sessionID`), but *not* the model, and
-//! opencode has no OS-level sandbox -- so `model_resolved` is reported as
-//! `"unknown"` and enforcement is `agent-policy` at best, never `os-sandbox`.
-//! Reporting that honestly is the point; see `perms_enforcement`.
+//! opencode has no OS-level sandbox. This adapter also passes nothing that
+//! enforces a read-only / workspace-write policy on opencode -- so
+//! `model_resolved` is reported as `"unknown"` and enforcement is always
+//! `none` (never agent-policy or os-sandbox). Reporting that honestly is the
+//! point; see `perms_enforcement`.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Command, Stdio};
@@ -50,13 +52,13 @@ impl Adapter for OpencodeAdapter {
         "exec"
     }
 
-    fn perms_enforcement(&self, perms: Perms) -> Enforcement {
-        match perms {
-            // opencode has no OS sandbox; its permission gating is app-level
-            // policy, so the strongest honest claim is agent-policy.
-            Perms::ReadOnly | Perms::WorkspaceWrite => Enforcement::AgentPolicy,
-            Perms::Full => Enforcement::Unenforced,
-        }
+    fn perms_enforcement(&self, _perms: Perms) -> Enforcement {
+        // opencode has no OS sandbox, and this adapter passes nothing that
+        // enforces a read-only / workspace-write policy on opencode, so we
+        // cannot honestly claim *any* enforcement. Reporting agent-policy here
+        // would let `--require-enforcement any --perms read-only` pass preflight
+        // while opencode runs with the user's normal write-capable agent.
+        Enforcement::Unenforced
     }
 
     fn network_enforcement(&self, _perms: Option<Perms>, _network: Network) -> Enforcement {
@@ -76,7 +78,13 @@ struct Folded {
     parts: Vec<(String, String)>,
     usage: Usage,
     total_cost_usd: f64,
+    /// Number of `step_finish` events (tool-call rounds), reported as num_turns.
+    num_turns: u32,
     is_error: bool,
+    /// The harness's own error text, surfaced to the user on failure.
+    error_message: String,
+    /// The error looks like opencode rejecting the requested model.
+    invalid_model: bool,
 }
 
 impl Folded {
@@ -117,30 +125,73 @@ fn fold_event(state: &mut Folded, line: &str) {
             }
         }
         "step_finish" => {
+            // Each step_finish reports that step's usage (per-call deltas, not
+            // running totals -- verified: a later step's `input` is far smaller
+            // than the first), so accumulate across steps to get the run total,
+            // matching how cost is summed below.
+            state.num_turns += 1;
             if let Some(part) = obj.get("part") {
                 if let Some(tok) = part.get("tokens") {
                     let get = |k: &str| tok.get(k).and_then(Value::as_u64).unwrap_or(0);
                     let cache = tok.get("cache");
                     let cache_get =
                         |k: &str| cache.and_then(|c| c.get(k)).and_then(Value::as_u64).unwrap_or(0);
-                    state.usage = Usage {
-                        input_tokens: get("input"),
-                        output_tokens: get("output"),
-                        cache_read_input_tokens: cache_get("read"),
-                        cache_creation_input_tokens: cache_get("write"),
-                    };
+                    let u = &mut state.usage;
+                    u.input_tokens = u.input_tokens.saturating_add(get("input"));
+                    u.output_tokens = u.output_tokens.saturating_add(get("output"));
+                    u.cache_read_input_tokens =
+                        u.cache_read_input_tokens.saturating_add(cache_get("read"));
+                    u.cache_creation_input_tokens =
+                        u.cache_creation_input_tokens.saturating_add(cache_get("write"));
                 }
                 if let Some(c) = part.get("cost").and_then(Value::as_f64) {
                     state.total_cost_usd += c;
                 }
             }
         }
-        // Any error/abort event marks the run as errored.
-        t if t.contains("error") || t.contains("abort") => {
+        // A terminal error event (opencode emits `{"type":"error", ...}`) marks
+        // the run as errored. Match exactly rather than by substring so a
+        // benign event whose name merely contains "error" can't latch failure.
+        "error" => {
             state.is_error = true;
+            let msg = obj
+                .get("message")
+                .and_then(Value::as_str)
+                .or_else(|| {
+                    obj.get("error")
+                        .and_then(|e| e.get("message"))
+                        .and_then(Value::as_str)
+                })
+                .or_else(|| {
+                    obj.get("error")
+                        .and_then(|e| e.get("data"))
+                        .and_then(|d| d.get("message"))
+                        .and_then(Value::as_str)
+                })
+                .unwrap_or_default();
+            if !msg.is_empty() {
+                state.error_message = msg.to_string();
+            }
+            if looks_like_model_error(msg) {
+                state.invalid_model = true;
+            }
         }
         _ => {}
     }
+}
+
+/// Heuristic: does an opencode error message indicate the model was rejected?
+/// Matched against opencode's own error text so exit 31 reflects its live
+/// verdict. Mirrors the codex/claude adapters' detection.
+fn looks_like_model_error(msg: &str) -> bool {
+    let m = msg.to_ascii_lowercase();
+    m.contains("model")
+        && (m.contains("not supported")
+            || m.contains("not found")
+            || m.contains("does not exist")
+            || m.contains("unknown model")
+            || m.contains("invalid model")
+            || m.contains("no such model"))
 }
 
 fn build_argv(opts: &Options) -> Vec<String> {
@@ -279,10 +330,13 @@ fn run(opts: &Options, mut stream_out: Option<&mut dyn Write>) -> Result<RunOutc
 
     let duration_ms = start.elapsed().as_millis() as u64;
 
-    // On failure with no answer, surface opencode's own stderr tail so the user
-    // sees why instead of an empty answer.
+    // On failure with no answer, surface opencode's own error text -- prefer a
+    // structured `error` event's message, then fall back to the stderr tail --
+    // so the user sees why instead of an empty answer.
     let final_text = if !folded.parts.is_empty() {
         folded.final_text()
+    } else if !folded.error_message.is_empty() {
+        folded.error_message.clone()
     } else if folded.is_error {
         let deadline = Instant::now() + STDERR_DRAIN_WAIT;
         while !stderr_done.load(Ordering::SeqCst) && Instant::now() < deadline {
@@ -303,7 +357,7 @@ fn run(opts: &Options, mut stream_out: Option<&mut dyn Write>) -> Result<RunOutc
         // report "unknown" rather than echoing the requested model.
         model: String::new(),
         is_error: folded.is_error,
-        num_turns: 1,
+        num_turns: folded.num_turns.max(1),
         total_cost_usd: folded.total_cost_usd,
         duration_api_ms: 0,
         usage: folded.usage,
@@ -323,7 +377,7 @@ fn run(opts: &Options, mut stream_out: Option<&mut dyn Write>) -> Result<RunOutc
         summary,
         duration_ms,
         streamed,
-        invalid_model: false,
+        invalid_model: folded.invalid_model,
     })
 }
 
@@ -370,10 +424,55 @@ mod tests {
     }
 
     #[test]
-    fn error_event_marks_error() {
+    fn error_event_marks_error_and_captures_message() {
         let mut f = Folded::default();
-        fold_event(&mut f, r#"{"type":"error","sessionID":"x","part":{}}"#);
+        fold_event(
+            &mut f,
+            r#"{"type":"error","sessionID":"x","error":{"data":{"message":"Unexpected server error"}}}"#,
+        );
         assert!(f.is_error);
+        assert_eq!(f.error_message, "Unexpected server error");
+        assert!(!f.invalid_model);
+    }
+
+    #[test]
+    fn model_rejection_flags_invalid_model() {
+        let mut f = Folded::default();
+        fold_event(
+            &mut f,
+            r#"{"type":"error","error":{"message":"provider error: model bogus/notreal not found"}}"#,
+        );
+        assert!(f.is_error);
+        assert!(f.invalid_model);
+    }
+
+    #[test]
+    fn benign_error_named_event_does_not_latch_failure() {
+        let mut f = Folded::default();
+        // A non-terminal event whose type merely contains "error" must not flip
+        // is_error (exact-match on "error" only).
+        fold_event(&mut f, r#"{"type":"error_metrics","part":{}}"#);
+        assert!(!f.is_error);
+    }
+
+    #[test]
+    fn usage_accumulates_across_steps() {
+        // opencode reports per-step usage; the run total is the sum. num_turns
+        // counts the step_finish events.
+        let mut f = Folded::default();
+        fold_event(
+            &mut f,
+            r#"{"type":"step_finish","part":{"tokens":{"input":16833,"output":13,"cache":{"read":128,"write":0}},"cost":0.001}}"#,
+        );
+        fold_event(
+            &mut f,
+            r#"{"type":"step_finish","part":{"tokens":{"input":72,"output":38,"cache":{"read":16960,"write":0}},"cost":0.002}}"#,
+        );
+        assert_eq!(f.usage.input_tokens, 16833 + 72);
+        assert_eq!(f.usage.output_tokens, 13 + 38);
+        assert_eq!(f.usage.cache_read_input_tokens, 128 + 16960);
+        assert!((f.total_cost_usd - 0.003).abs() < 1e-9);
+        assert_eq!(f.num_turns, 2);
     }
 
     #[test]

@@ -196,6 +196,10 @@ pub fn list_models(w: &mut dyn Write, harness: Option<Harness>) -> std::io::Resu
                 }
                 writeln!(w, "  note: codex models are provider-defined; pass -m <model> (e.g. gpt-5.5)")?;
             }
+            Harness::Opencode => {
+                writeln!(w, "  note: opencode models use provider/model syntax; pass -m <provider/model> (e.g. anthropic/claude-sonnet-4)")?;
+                writeln!(w, "  note: opencode exposes no model-list API and does not report the resolved model; model_resolved is \"unknown\"")?;
+            }
             _ => {
                 writeln!(w, "  aliases: opus, sonnet, haiku (or a full claude-* id)")?;
                 writeln!(w, "  note: claude exposes no model-list API; model_resolved is read from the transcript")?;
