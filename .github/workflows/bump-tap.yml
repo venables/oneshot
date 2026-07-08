@@ -2,7 +2,7 @@ name: bump-tap
 
 # On a `v*` tag, point the venables/homebrew-tap anyagent formula at the new
 # source tarball. Requires a HOMEBREW_TAP_TOKEN secret (a PAT with write access
-# to venables/homebrew-tap). Runs alongside the npm `release` workflow.
+# to venables/homebrew-tap). This is anyagent's sole release channel.
 
 on:
   push:

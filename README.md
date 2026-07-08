@@ -234,43 +234,27 @@ ANYAGENT_E2E=1 ANYAGENT_CLAUDE_BIN=/path/to/claude \
   cargo test --test integration -- --test-threads=1
 ```
 
-## Packaging (npm)
+## Install
 
-anyagent ships as a main launcher package plus one prebuilt per-platform package
-(the esbuild/swc model). A Rust binary is platform-specific, so a single tarball
-can't be portable; instead each platform gets its own package with the correct
-`os`/`cpu` and its own binary, and npm installs only the matching one.
+Via the Homebrew tap (builds from source with the Rust toolchain):
 
-```
-anyagent                    # bin/anyagent.js launcher; optionalDependencies below
-  anyagent-darwin-arm64     # npm/darwin-arm64  (os: darwin, cpu: arm64)
-  anyagent-linux-x64        # npm/linux-x64     (os: linux,  cpu: x64)
+```bash
+brew install venables/tap/anyagent
 ```
 
-The launcher (`bin/anyagent.js`) resolves `anyagent-<platform>-<arch>` and execs
-its `bin/anyagent`, inheriting the terminal's stdio so anyagent still drives its
-own PTY. Only the one platform package npm selected is installed; if none
-matches, the launcher points the user at `cargo install --path .`.
+Or straight from source:
 
-Supported targets today: **darwin-arm64** (Apple Silicon) and **linux-x64**. Add
-a target by dropping a `npm/<platform>-<arch>/package.json`, a line in the
-release matrix, and a pin in the main `optionalDependencies`.
+```bash
+cargo install --path .
+```
 
-**Releasing.** Push a `vX.Y.Z` tag. `.github/workflows/release.yml` builds each
-target on its native runner, then `scripts/sync-versions.mjs` stamps the tag
-version across every package (and the dependency pins) and publishes the
-platform packages before the main one. Requires an `NPM_TOKEN` repo secret with
-publish rights. (The per-platform `bin/anyagent` binaries are gitignored build
-artifacts, placed by CI.) To cut a release:
+**Releasing.** Push a `vX.Y.Z` tag. `.github/workflows/bump-tap.yml` recomputes
+the source tarball's sha and repoints the [`venables/homebrew-tap`](https://github.com/venables/homebrew-tap)
+formula at the new release. Requires a `HOMEBREW_TAP_TOKEN` repo secret with
+write access to the tap.
 
 ```bash
 git tag v0.1.0 && git push origin v0.1.0
-```
-
-Install once published:
-
-```bash
-npm i -g anyagent   # or: npx anyagent "<prompt>"
 ```
 
 ## License
