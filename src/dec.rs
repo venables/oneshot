@@ -126,12 +126,10 @@ impl DecResponder {
                     out.extend_from_slice(b"\x1bP>|anyagent\x1b\\");
                 }
             }
-            b't' => {
-                // Window-size report in characters: 8 ; rows ; cols t
-                if params == b"18" {
-                    let reply = format!("\x1b[8;{};{}t", self.rows, self.cols);
-                    out.extend_from_slice(reply.as_bytes());
-                }
+            // Window-size report in characters: 8 ; rows ; cols t
+            b't' if params == b"18" => {
+                let reply = format!("\x1b[8;{};{}t", self.rows, self.cols);
+                out.extend_from_slice(reply.as_bytes());
             }
             _ => {}
         }
