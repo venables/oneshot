@@ -1,0 +1,416 @@
+//! Opencode adapter: drive `opencode run --format json`, which is natively
+//! non-interactive, so like the codex adapter there is no PTY/hook/DEC
+//! machinery. We spawn a plain subprocess with the prompt as a trailing
+//! positional argument (after `--`, so a prompt beginning with `-` is never
+//! mistaken for a flag) and read the JSON event stream on stdout.
+//!
+//! The event stream exposes the answer (`text` parts), token usage and cost
+//! (`step_finish`), and the session id (`sessionID`), but *not* the model, and
+//! opencode has no OS-level sandbox -- so `model_resolved` is reported as
+//! `"unknown"` and enforcement is `agent-policy` at best, never `os-sandbox`.
+//! Reporting that honestly is the point; see `perms_enforcement`.
+
+use std::io::{BufRead, BufReader, Read, Write};
+use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::{Duration, Instant};
+
+use serde_json::Value;
+
+use crate::adapters::procgroup;
+use crate::adapters::{Adapter, DriverError, RunOutcome};
+use crate::args::Options;
+use crate::policy::{Enforcement, Network, Perms};
+use crate::signals;
+use crate::transcript::{Summary, Usage};
+
+const POLL: Duration = Duration::from_millis(50);
+/// Cap on captured stderr surfaced when opencode fails without a JSON answer.
+const STDERR_TAIL_CAP: usize = 8192;
+/// Bounded wait for the detached stderr reader to drain before snapshotting the
+/// tail for a failure diagnostic.
+const STDERR_DRAIN_WAIT: Duration = Duration::from_millis(200);
+
+/// Drives the `opencode` CLI via its non-interactive `run` subcommand.
+pub struct OpencodeAdapter;
+
+impl Adapter for OpencodeAdapter {
+    fn run(
+        &self,
+        opts: &Options,
+        stream_out: Option<&mut dyn Write>,
+    ) -> Result<RunOutcome, DriverError> {
+        run(opts, stream_out)
+    }
+
+    fn drive(&self) -> &'static str {
+        "exec"
+    }
+
+    fn perms_enforcement(&self, perms: Perms) -> Enforcement {
+        match perms {
+            // opencode has no OS sandbox; its permission gating is app-level
+            // policy, so the strongest honest claim is agent-policy.
+            Perms::ReadOnly | Perms::WorkspaceWrite => Enforcement::AgentPolicy,
+            Perms::Full => Enforcement::Unenforced,
+        }
+    }
+
+    fn network_enforcement(&self, _perms: Option<Perms>, _network: Network) -> Enforcement {
+        // opencode does not sandbox network at all, so we can never honestly
+        // claim a network tier is enforced.
+        Enforcement::Unenforced
+    }
+}
+
+/// Accumulated state folded from the opencode `--format json` event stream.
+#[derive(Debug, Default, PartialEq)]
+struct Folded {
+    session_id: String,
+    /// `(part id, latest text)` in first-seen order. A streamed part is
+    /// re-emitted with a longer `text`, so we keep the latest value per id;
+    /// parts with no id are distinct fragments and are always appended.
+    parts: Vec<(String, String)>,
+    usage: Usage,
+    total_cost_usd: f64,
+    is_error: bool,
+}
+
+impl Folded {
+    fn final_text(&self) -> String {
+        self.parts.iter().map(|(_, t)| t.as_str()).collect()
+    }
+}
+
+/// Fold one event line into the running state. Unknown lines are ignored, so a
+/// new opencode event type never breaks the parse.
+fn fold_event(state: &mut Folded, line: &str) {
+    let Ok(obj) = serde_json::from_str::<Value>(line) else {
+        return;
+    };
+    if state.session_id.is_empty()
+        && let Some(id) = obj.get("sessionID").and_then(Value::as_str)
+    {
+        state.session_id = id.to_string();
+    }
+    let Some(ty) = obj.get("type").and_then(Value::as_str) else {
+        return;
+    };
+    match ty {
+        "text" => {
+            if let Some(part) = obj.get("part") {
+                let text = part
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                match part.get("id").and_then(Value::as_str).filter(|s| !s.is_empty()) {
+                    Some(id) => match state.parts.iter_mut().find(|(pid, _)| pid == id) {
+                        Some(slot) => slot.1 = text,
+                        None => state.parts.push((id.to_string(), text)),
+                    },
+                    None => state.parts.push((String::new(), text)),
+                }
+            }
+        }
+        "step_finish" => {
+            if let Some(part) = obj.get("part") {
+                if let Some(tok) = part.get("tokens") {
+                    let get = |k: &str| tok.get(k).and_then(Value::as_u64).unwrap_or(0);
+                    let cache = tok.get("cache");
+                    let cache_get =
+                        |k: &str| cache.and_then(|c| c.get(k)).and_then(Value::as_u64).unwrap_or(0);
+                    state.usage = Usage {
+                        input_tokens: get("input"),
+                        output_tokens: get("output"),
+                        cache_read_input_tokens: cache_get("read"),
+                        cache_creation_input_tokens: cache_get("write"),
+                    };
+                }
+                if let Some(c) = part.get("cost").and_then(Value::as_f64) {
+                    state.total_cost_usd += c;
+                }
+            }
+        }
+        // Any error/abort event marks the run as errored.
+        t if t.contains("error") || t.contains("abort") => {
+            state.is_error = true;
+        }
+        _ => {}
+    }
+}
+
+fn build_argv(opts: &Options) -> Vec<String> {
+    let mut v = vec!["run".to_string(), "--format".to_string(), "json".to_string()];
+    if let Some(m) = &opts.model {
+        v.push("--model".to_string());
+        v.push(m.clone());
+    }
+    if let Some(cwd) = &opts.cwd {
+        v.push("--dir".to_string());
+        v.push(cwd.clone());
+    }
+    // opencode has no OS sandbox tiers; `--auto` auto-approves every tool.
+    // Map it from an explicit bypass or the `full` perms tier only -- the
+    // read-only / workspace-write tiers keep opencode's default gating.
+    if opts.skip_permissions || opts.perms == Some(Perms::Full) {
+        v.push("--auto".to_string());
+    }
+    // `--` terminates option parsing; the prompt is the trailing positional.
+    v.push("--".to_string());
+    v.push(opts.prompt.clone());
+    v
+}
+
+fn run(opts: &Options, mut stream_out: Option<&mut dyn Write>) -> Result<RunOutcome, DriverError> {
+    let start = Instant::now();
+    let timeout = Duration::from_millis(opts.timeout_ms);
+
+    // opencode prints incidental notes to stderr ("Shell cwd was reset to ...").
+    // Don't pass it through by default, but capture the tail so a startup
+    // failure that never reaches the JSON stdout stream still yields a
+    // diagnostic. `--debug` also mirrors it to our stderr live.
+    let mut child = {
+        let mut cmd = Command::new("opencode");
+        cmd.args(build_argv(opts))
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        // opencode spawns its own tool subprocesses; lead a process group so an
+        // interrupt/timeout tears the whole tree down, not just the top level.
+        procgroup::lead_process_group(&mut cmd);
+        cmd.spawn().map_err(|e| DriverError::Spawn(e.into()))?
+    };
+
+    // Drain stderr into a bounded byte tail (mirrored under --debug). See the
+    // codex adapter for the rationale on the detached, never-joined reader.
+    let mut stderr_pipe = child.stderr.take().expect("piped stderr");
+    let debug = opts.debug;
+    let stderr_tail = Arc::new(Mutex::new(Vec::<u8>::new()));
+    let stderr_done = Arc::new(AtomicBool::new(false));
+    let stderr_tail_writer = Arc::clone(&stderr_tail);
+    let stderr_done_writer = Arc::clone(&stderr_done);
+    thread::spawn(move || {
+        let mut chunk = [0u8; 4096];
+        loop {
+            match stderr_pipe.read(&mut chunk) {
+                Ok(0) => break,
+                Ok(n) => {
+                    if debug {
+                        let _ = std::io::stderr().write_all(&chunk[..n]);
+                    }
+                    if let Ok(mut tail) = stderr_tail_writer.lock() {
+                        tail.extend_from_slice(&chunk[..n]);
+                        if tail.len() > STDERR_TAIL_CAP {
+                            let cut = tail.len() - STDERR_TAIL_CAP;
+                            tail.drain(..cut);
+                        }
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+        stderr_done_writer.store(true, Ordering::SeqCst);
+    });
+
+    // Read stdout lines on a thread so the main loop can honor the timeout and
+    // interrupts even while a read would otherwise block.
+    let stdout = child.stdout.take().expect("piped stdout");
+    let (tx, rx) = mpsc::channel::<String>();
+    let reader = thread::spawn(move || {
+        let mut r = BufReader::new(stdout);
+        let mut line = String::new();
+        loop {
+            line.clear();
+            match r.read_line(&mut line) {
+                Ok(0) => break,
+                Ok(_) => {
+                    if tx.send(line.clone()).is_err() {
+                        break;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
+    let streaming =
+        opts.output_format == crate::args::OutputFormat::StreamJson && stream_out.is_some();
+    let mut folded = Folded::default();
+    let mut replay = String::new();
+
+    loop {
+        if signals::interrupted() {
+            procgroup::terminate_group(child.id());
+            let _ = child.wait();
+            let _ = reader.join();
+            return Err(DriverError::Interrupted);
+        }
+        if start.elapsed() > timeout {
+            procgroup::terminate_group(child.id());
+            let _ = child.wait();
+            let _ = reader.join();
+            return Err(DriverError::StopTimeout);
+        }
+        match rx.recv_timeout(POLL) {
+            Ok(line) => {
+                if streaming
+                    && let Some(w) = stream_out.as_mut()
+                {
+                    let _ = w.write_all(line.as_bytes());
+                    let _ = w.flush();
+                }
+                replay.push_str(&line);
+                fold_event(&mut folded, line.trim_end());
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+        }
+    }
+
+    let _ = reader.join();
+    let status = child.wait().map_err(DriverError::Io)?;
+    if !status.success() {
+        folded.is_error = true;
+    }
+
+    let duration_ms = start.elapsed().as_millis() as u64;
+
+    // On failure with no answer, surface opencode's own stderr tail so the user
+    // sees why instead of an empty answer.
+    let final_text = if !folded.parts.is_empty() {
+        folded.final_text()
+    } else if folded.is_error {
+        let deadline = Instant::now() + STDERR_DRAIN_WAIT;
+        while !stderr_done.load(Ordering::SeqCst) && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(5));
+        }
+        stderr_tail
+            .lock()
+            .map(|t| String::from_utf8_lossy(&t).trim().to_string())
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
+
+    let summary = Summary {
+        final_text,
+        session_id: folded.session_id,
+        // opencode does not expose the resolved model in its event stream, so
+        // report "unknown" rather than echoing the requested model.
+        model: String::new(),
+        is_error: folded.is_error,
+        num_turns: 1,
+        total_cost_usd: folded.total_cost_usd,
+        duration_api_ms: 0,
+        usage: folded.usage,
+        jsonl_replay: replay,
+    };
+
+    let mut streamed = false;
+    if streaming
+        && let Some(w) = stream_out.as_mut()
+    {
+        crate::emit::emit_result_envelope(*w, &summary, duration_ms).map_err(DriverError::Io)?;
+        let _ = w.flush();
+        streamed = true;
+    }
+
+    Ok(RunOutcome {
+        summary,
+        duration_ms,
+        streamed,
+        invalid_model: false,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn folds_stream_into_answer_usage_session() {
+        let lines = [
+            r#"{"type":"step_start","sessionID":"ses_1","part":{"type":"step-start"}}"#,
+            r#"{"type":"text","sessionID":"ses_1","part":{"id":"prt_a","type":"text","text":"hello"}}"#,
+            r#"{"type":"step_finish","sessionID":"ses_1","part":{"type":"step-finish","tokens":{"input":9044,"output":4,"cache":{"write":0,"read":7168}},"cost":0.0012}}"#,
+        ];
+        let mut f = Folded::default();
+        for l in lines {
+            fold_event(&mut f, l);
+        }
+        assert_eq!(f.final_text(), "hello");
+        assert_eq!(f.session_id, "ses_1");
+        assert_eq!(f.usage.input_tokens, 9044);
+        assert_eq!(f.usage.output_tokens, 4);
+        assert_eq!(f.usage.cache_read_input_tokens, 7168);
+        assert_eq!(f.usage.cache_creation_input_tokens, 0);
+        assert!((f.total_cost_usd - 0.0012).abs() < 1e-9);
+        assert!(!f.is_error);
+    }
+
+    #[test]
+    fn streamed_part_updates_in_place_by_id() {
+        let mut f = Folded::default();
+        fold_event(&mut f, r#"{"type":"text","part":{"id":"p1","text":"hel"}}"#);
+        fold_event(&mut f, r#"{"type":"text","part":{"id":"p1","text":"hello"}}"#);
+        fold_event(&mut f, r#"{"type":"text","part":{"id":"p2","text":" world"}}"#);
+        assert_eq!(f.final_text(), "hello world");
+    }
+
+    #[test]
+    fn idless_parts_append_not_collapse() {
+        let mut f = Folded::default();
+        fold_event(&mut f, r#"{"type":"text","part":{"text":"foo"}}"#);
+        fold_event(&mut f, r#"{"type":"text","part":{"text":"bar"}}"#);
+        assert_eq!(f.final_text(), "foobar");
+    }
+
+    #[test]
+    fn error_event_marks_error() {
+        let mut f = Folded::default();
+        fold_event(&mut f, r#"{"type":"error","sessionID":"x","part":{}}"#);
+        assert!(f.is_error);
+    }
+
+    #[test]
+    fn malformed_and_unknown_lines_ignored() {
+        let mut f = Folded::default();
+        fold_event(&mut f, "not json");
+        fold_event(&mut f, r#"{"type":"some.future.event","x":1}"#);
+        assert_eq!(f, Folded::default());
+    }
+
+    #[test]
+    fn build_argv_maps_flags() {
+        let opts = Options {
+            prompt: "hi".into(),
+            model: Some("anthropic/claude-sonnet-4".into()),
+            cwd: Some("/work".into()),
+            skip_permissions: true,
+            ..Options::default()
+        };
+        let v = build_argv(&opts);
+        assert_eq!(v[0], "run");
+        assert!(v.windows(2).any(|w| w == ["--format", "json"]));
+        assert!(v.windows(2).any(|w| w == ["--model", "anthropic/claude-sonnet-4"]));
+        assert!(v.windows(2).any(|w| w == ["--dir", "/work"]));
+        assert!(v.contains(&"--auto".to_string()));
+        assert_eq!(v[v.len() - 2], "--");
+        assert_eq!(v.last().unwrap(), "hi");
+    }
+
+    #[test]
+    fn build_argv_no_auto_without_bypass_or_full() {
+        let opts = Options {
+            prompt: "hi".into(),
+            perms: Some(Perms::ReadOnly),
+            ..Options::default()
+        };
+        let v = build_argv(&opts);
+        assert!(!v.contains(&"--auto".to_string()));
+    }
+}

@@ -51,11 +51,15 @@ today:
   Authoritative metadata: model, usage, and cost come straight from claude's
   own JSON envelope.
 - **`codex`** — the natively non-interactive `codex exec`, a plain subprocess.
+- **`opencode`** — `opencode run --format json`, a plain subprocess. opencode
+  has no OS sandbox and doesn't expose the resolved model, so enforcement is
+  reported as `agent-policy` at best and `model_resolved` as `unknown` — see
+  Caveats.
 
-`opencode`, `gemini`, and `pi` are recognised and reserved (selecting one fails
-fast until it's wired up). A value that isn't a known name is treated as a path
-to a **claude-compatible** binary and driven via `claude -p` — handy for a fork
-or a wrapper shim. The default is `claude`.
+`gemini` and `pi` are recognised and reserved (selecting one fails fast until
+it's wired up). A value that isn't a known name is treated as a path to a
+**claude-compatible** binary and driven via `claude -p` — handy for a fork or a
+wrapper shim. The default is `claude`.
 
 Passing **`--pty`** drives the agent's interactive TUI under a PTY instead of
 its native non-interactive mode — a fallback for environments where the latter
@@ -66,7 +70,9 @@ prefer the native drive.
 
 The default **`claude`** harness simply runs `claude -p --output-format json`
 and parses the result envelope (answer, usage, cost, and the `modelUsage` key
-that gives the authoritative model). codex similarly runs `codex exec --json`.
+that gives the authoritative model). codex similarly runs `codex exec --json`,
+and opencode runs `opencode run --format json`; both fold their JSONL event
+streams into the same answer + metadata envelope.
 Neither needs a PTY.
 
 The **`--pty`** fallback is the original mechanism — driving the interactive TUI

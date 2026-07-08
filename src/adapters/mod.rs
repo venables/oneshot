@@ -30,6 +30,7 @@ pub mod claude;
 pub mod claude_common;
 pub mod claude_pty;
 pub mod codex;
+pub mod opencode;
 pub mod procgroup;
 
 /// A backend agent CLI that anyagent can drive to run a single prompt to
@@ -77,7 +78,8 @@ pub fn for_harness(harness: &Harness, pty: bool) -> Option<Box<dyn Adapter>> {
         }
         Harness::Claude | Harness::Custom(_) => Some(Box::new(claude::ClaudeAdapter)),
         Harness::Codex => Some(Box::new(codex::CodexAdapter)),
-        Harness::Opencode | Harness::Gemini | Harness::Pi => None,
+        Harness::Opencode => Some(Box::new(opencode::OpencodeAdapter)),
+        Harness::Gemini | Harness::Pi => None,
     }
 }
 

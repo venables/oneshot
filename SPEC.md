@@ -61,29 +61,30 @@ argv -> hook harness (FIFO + relay script + --settings)
 
 ### Modules (`src/`)
 
-| File                        | Responsibility                                                              |
-| --------------------------- | --------------------------------------------------------------------------- |
-| `main.rs`                   | CLI entry; stdin prompt; adapter dispatch; format dispatch; exit codes.     |
-| `args.rs`                   | Argparse; rejects `--settings`; forwards unknown flags.                     |
-| `harness.rs`                | `--harness` selection; known names + custom path.                           |
-| `adapters/mod.rs`           | `Adapter` trait; `for_harness` dispatch; shared `RunOutcome`/`DriverError`. |
-| `adapters/claude.rs`        | Default claude adapter: `claude -p`, parse the JSON result envelope.        |
-| `adapters/claude_pty.rs`    | `--pty` fallback: PTY drive, pump thread, FIFO poll, Stop hook.             |
-| `adapters/claude_common.rs` | Shared claude bits: bin resolution, perms flags, enforcement.               |
-| `adapters/codex.rs`         | codex adapter: `codex exec --json`, fold events, rollout model lookup.      |
-| `dec.rs`                    | Stateful DEC/XTerm query responder (carry buffer across reads).             |
-| `hook.rs`                   | Temp dir + FIFO + relay script + inline `--settings` JSON; payload parse.   |
-| `pty.rs`                    | PTY spawn (execs argv directly — no `sh -c`).                               |
-| `stream.rs`                 | `read_at`-based transcript tailer (holds back torn lines).                  |
-| `transcript.rs`             | Session JSONL parser → final text + usage + flags.                          |
-| `emit.rs`                   | text / json / stream-json formatters.                                       |
-| `signals.rs`                | SIGINT/SIGTERM → flag; lets the loop tear down and exit 130.                |
+| File                        | Responsibility                                                               |
+| --------------------------- | ---------------------------------------------------------------------------- |
+| `main.rs`                   | CLI entry; stdin prompt; adapter dispatch; format dispatch; exit codes.      |
+| `args.rs`                   | Argparse; rejects `--settings`; forwards unknown flags.                      |
+| `harness.rs`                | `--harness` selection; known names + custom path.                            |
+| `adapters/mod.rs`           | `Adapter` trait; `for_harness` dispatch; shared `RunOutcome`/`DriverError`.  |
+| `adapters/claude.rs`        | Default claude adapter: `claude -p`, parse the JSON result envelope.         |
+| `adapters/claude_pty.rs`    | `--pty` fallback: PTY drive, pump thread, FIFO poll, Stop hook.              |
+| `adapters/claude_common.rs` | Shared claude bits: bin resolution, perms flags, enforcement.                |
+| `adapters/codex.rs`         | codex adapter: `codex exec --json`, fold events, rollout model lookup.       |
+| `adapters/opencode.rs`      | opencode adapter: `opencode run --format json`, fold events (no OS sandbox). |
+| `dec.rs`                    | Stateful DEC/XTerm query responder (carry buffer across reads).              |
+| `hook.rs`                   | Temp dir + FIFO + relay script + inline `--settings` JSON; payload parse.    |
+| `pty.rs`                    | PTY spawn (execs argv directly — no `sh -c`).                                |
+| `stream.rs`                 | `read_at`-based transcript tailer (holds back torn lines).                   |
+| `transcript.rs`             | Session JSONL parser → final text + usage + flags.                           |
+| `emit.rs`                   | text / json / stream-json formatters.                                        |
+| `signals.rs`                | SIGINT/SIGTERM → flag; lets the loop tear down and exit 130.                 |
 
 Adapters live in `src/adapters/`: each backend agent CLI implements the
 `Adapter` trait in its own module, so adding a harness is "drop a file in
 `adapters/` and wire it into `for_harness`". The Claude protocol (PTY + Stop
 hook) is one such adapter; harnesses with a real non-interactive mode (codex,
-opencode) will be plain subprocess adapters with no PTY/hook machinery.
+opencode) are plain subprocess adapters with no PTY/hook machinery.
 
 ### 2.1 Concurrency
 
