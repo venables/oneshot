@@ -111,7 +111,7 @@ dependencies = [
 
 [[package]]
 name = "oneshot"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "nix 0.31.3",
