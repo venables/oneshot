@@ -1,15 +1,15 @@
-# anyagent
+# oneshot
 
 One non-interactive interface in front of any coding agent.
 
 ## Use
 
 ```bash
-anyagent "your prompt here"
-anyagent --output-format json "summarize this" < diff.txt
-anyagent --output-format stream-json "audit src/" | jq .
-anyagent --model opus "explain quicksort to a 10-year-old"
-anyagent --harness claude "which harness am I?"
+oneshot "your prompt here"
+oneshot --output-format json "summarize this" < diff.txt
+oneshot --output-format stream-json "audit src/" | jq .
+oneshot --model opus "explain quicksort to a 10-year-old"
+oneshot --harness claude "which harness am I?"
 ```
 
 If no prompt argument is given, the prompt is read from stdin.
@@ -17,21 +17,21 @@ If no prompt argument is given, the prompt is read from stdin.
 ## Commands
 
 ```bash
-anyagent "<prompt>"                 # sugar for `run` with defaults
-anyagent run [flags] -- "<prompt>"  # explicit run
-anyagent list harnesses             # installed + implemented/reserved + version
-anyagent list models [--harness X]  # best-effort model discovery
-anyagent capabilities [--harness X] # per-harness perms->enforcement, network, outputs
-anyagent --help | --version
+oneshot "<prompt>"                 # sugar for `run` with defaults
+oneshot run [flags] -- "<prompt>"  # explicit run
+oneshot list harnesses             # installed + implemented/reserved + version
+oneshot list models [--harness X]  # best-effort model discovery
+oneshot capabilities [--harness X] # per-harness perms->enforcement, network, outputs
+oneshot --help | --version
 ```
 
 `run`/`list`/`capabilities` are recognised only as the first argument (like
 git); any other first token is treated as a prompt, so a prompt starting with
-one of those words can be forced with `anyagent run -- "run the tests"`.
+one of those words can be forced with `oneshot run -- "run the tests"`.
 `capabilities` is what lets an orchestrator stop hardcoding harness knowledge:
 
 ```
-$ anyagent capabilities --harness codex
+$ oneshot capabilities --harness codex
 harness: codex
 perms:
   read-only        os-sandbox
@@ -113,8 +113,8 @@ under a PTY, for environments where `claude -p` doesn't work:
 ```
 
 Unrecognised flags are forwarded to `claude`. `-p`/`--print` is accepted but
-ignored — anyagent already emulates print mode, so the flag is redundant, and
-swallowing it lets callers that invoke `claude -p "..."` point at anyagent
+ignored — oneshot already emulates print mode, so the flag is redundant, and
+swallowing it lets callers that invoke `claude -p "..."` point at oneshot
 unchanged. A user-supplied `--settings` is rejected (we inject our own settings
 for the Stop hook).
 
@@ -144,8 +144,8 @@ achieved — honestly, instead of a uniform-looking flag that lies.
 fast (exit 32) when the harness can't meet the demand, before anything runs.
 
 ```bash
-anyagent --harness claude --perms read-only --require-enforcement os-sandbox "…"
-# anyagent: claude can only enforce read-only via agent-policy, not os-sandbox
+oneshot --harness claude --perms read-only --require-enforcement os-sandbox "…"
+# oneshot: claude can only enforce read-only via agent-policy, not os-sandbox
 # (exit 32)
 ```
 
@@ -196,7 +196,7 @@ Exit codes are a stable API orchestrators can branch on.
 ## Caveats
 
 - **macOS / Linux only** (no Windows; needs a Unix PTY).
-- **Requires `claude` on `$PATH`** (or set `ANYAGENT_CLAUDE_BIN`, below).
+- **Requires `claude` on `$PATH`** (or set `ONESHOT_CLAUDE_BIN`, below).
 - **`--pty` can't report model/usage.** claude writes its transcript only
   in print mode or on a clean TUI exit — not while the PTY session is alive, and
   the Stop payload omits both — so a `--pty` run honestly reports
@@ -210,27 +210,27 @@ Exit codes are a stable API orchestrators can branch on.
   release that changes the hook payload or adds a new startup terminal probe
   can break this; failures surface rather than hide.
 
-### `ANYAGENT_CLAUDE_BIN`
+### `ONESHOT_CLAUDE_BIN`
 
 If `claude` on your `PATH` is a wrapper that injects its own `--settings`
 (e.g. the **cmux** shim), it will clobber ours and no hooks fire. Point
 directly at the real binary:
 
 ```bash
-ANYAGENT_CLAUDE_BIN=/path/to/real/claude anyagent "say hi"
+ONESHOT_CLAUDE_BIN=/path/to/real/claude oneshot "say hi"
 ```
 
 Equivalently, point `--harness` straight at the real binary:
-`anyagent --harness /path/to/real/claude "say hi"`.
+`oneshot --harness /path/to/real/claude "say hi"`.
 
 ## Build & test
 
 ```bash
-cargo build --release          # binary at target/release/anyagent
+cargo build --release          # binary at target/release/oneshot
 cargo test                     # unit tests (hermetic, no claude needed)
 
 # End-to-end against the real claude binary:
-ANYAGENT_E2E=1 ANYAGENT_CLAUDE_BIN=/path/to/claude \
+ONESHOT_E2E=1 ONESHOT_CLAUDE_BIN=/path/to/claude \
   cargo test --test integration -- --test-threads=1
 ```
 
@@ -239,7 +239,7 @@ ANYAGENT_E2E=1 ANYAGENT_CLAUDE_BIN=/path/to/claude \
 Via the Homebrew tap (builds from source with the Rust toolchain):
 
 ```bash
-brew install venables/tap/anyagent
+brew install venables/tap/oneshot
 ```
 
 Or straight from source:
