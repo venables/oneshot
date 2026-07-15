@@ -1,6 +1,6 @@
 [package]
-name = "oneshot"
-version = "0.2.0"
+name = "anyagent"
+version = "0.3.0"
 edition = "2024"
 
 [dependencies]
